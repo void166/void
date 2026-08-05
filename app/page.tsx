@@ -1,5 +1,5 @@
 import Link from "next/link";
-import HeroScene from "@/components/HeroScene";
+import CrystalHero from "@/components/CrystalHero";
 import SectionHeading from "@/components/SectionHeading";
 import ServiceMatrix from "@/components/ServiceMatrix";
 import NewsCard from "@/components/NewsCard";
@@ -13,43 +13,42 @@ export default function Home() {
 
   return (
     <>
-      <section className="w-full overflow-hidden bg-[#060606]">
-        <div className="container-page grid grid-cols-1 items-center gap-4 lg:grid-cols-[1fr_1.05fr] lg:gap-8">
-          <div className="py-16 lg:py-24">
-            <div className="eyebrow animate-fade-up text-brand-400">
-              AI &middot; Data &middot; Digital Marketing
-            </div>
-            <h1
-              className="animate-fade-up mt-4 text-4xl font-bold leading-tight tracking-tight sm:text-5xl"
-              style={{ animationDelay: "80ms" }}
-            >
-              We build the data and AI backbone behind smarter decisions.
-            </h1>
-            <p
-              className="animate-fade-up mt-5 max-w-lg text-base leading-relaxed text-mist sm:text-lg"
-              style={{ animationDelay: "160ms" }}
-            >
-              Dentsu Data Artist Mongol delivers AI solutions, data engineering, and
-              performance marketing — backed by 50+ specialists and the global reach
-              of the Dentsu Group.
-            </p>
-            <div className="animate-fade-up mt-8 flex flex-wrap gap-4" style={{ animationDelay: "240ms" }}>
-              <Link
-                href="/contact"
-                className="rounded-md bg-brand-500 px-6 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-400 hover:shadow-lg hover:shadow-brand-500/20"
-              >
-                Get in touch
-              </Link>
-              <Link
-                href="/services"
-                className="rounded-md border border-line-strong px-6 py-3 text-sm font-semibold text-paper transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-400 hover:text-brand-300"
-              >
-                Explore services
-              </Link>
-            </div>
+      <section className="relative h-[calc(100vh-69px)] min-h-[600px] w-full overflow-hidden bg-[#050505]">
+        <CrystalHero />
+      </section>
+
+      <section className="border-b border-line py-20">
+        <div className="container-page">
+          <div className="eyebrow animate-fade-up text-brand-400">
+            AI &middot; Data &middot; Digital Marketing
           </div>
-          <div className="relative h-[60vh] min-h-[420px] w-full lg:h-[80vh] lg:min-h-[560px]">
-            <HeroScene />
+          <h1
+            className="animate-fade-up mt-4 max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl"
+            style={{ animationDelay: "80ms" }}
+          >
+            We build the data and AI backbone behind smarter decisions.
+          </h1>
+          <p
+            className="animate-fade-up mt-5 max-w-2xl text-base leading-relaxed text-mist sm:text-lg"
+            style={{ animationDelay: "160ms" }}
+          >
+            Dentsu Data Artist Mongol delivers AI solutions, data engineering, and
+            performance marketing — backed by 50+ specialists and the global reach
+            of the Dentsu Group.
+          </p>
+          <div className="animate-fade-up mt-8 flex flex-wrap gap-4" style={{ animationDelay: "240ms" }}>
+            <Link
+              href="/contact"
+              className="rounded-md bg-brand-500 px-6 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-400 hover:shadow-lg hover:shadow-brand-500/20"
+            >
+              Get in touch
+            </Link>
+            <Link
+              href="/services"
+              className="rounded-md border border-line-strong px-6 py-3 text-sm font-semibold text-paper transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-400 hover:text-brand-300"
+            >
+              Explore services
+            </Link>
           </div>
         </div>
       </section>
