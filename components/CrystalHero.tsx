@@ -12,6 +12,9 @@ export default function CrystalHero() {
   const coordTextRef = useRef<HTMLDivElement | null>(null);
   const apiRef = useRef<CrystalHeroApi | null>(null);
   const [failed, setFailed] = useState(false);
+  const [roughness, setRoughness] = useState(0.1);
+  const [noiseScale, setNoiseScale] = useState(9.0);
+  const [tint, setTint] = useState("#ffffff");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -44,9 +47,28 @@ export default function CrystalHero() {
     );
   }
 
+  const tintRgb = (() => {
+    const n = parseInt(tint.slice(1), 16);
+    return `{r: ${(n >> 16) & 255}, g: ${(n >> 8) & 255}, b: ${n & 255}}`;
+  })();
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#050505]">
       <div ref={containerRef} className="absolute inset-0" />
+
+      {/* CRT scanlines over the whole stage */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-50 mix-blend-multiply"
+        style={{
+          background: "repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 1px, transparent 1px 3px)",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: "radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,.5) 100%)",
+        }}
+      />
 
       {/* static center guides — faint stage alignment */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
@@ -101,7 +123,59 @@ export default function CrystalHero() {
         </button>
       </div>
 
-      <div className="eyebrow pointer-events-none absolute bottom-6 left-6 text-white/30">
+      {/* MainLogo Material — live debug panel, alche-style */}
+      <div className="absolute bottom-6 left-6 w-64 select-none">
+        <div className="eyebrow pointer-events-none text-white/30">MainLogo Material</div>
+        <div className="mt-3 flex items-center gap-3 font-mono text-[11px] text-white/40">
+          <span className="w-20 shrink-0">roughness</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={roughness}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setRoughness(v);
+              apiRef.current?.setRoughness(v);
+            }}
+            className="h-px w-full cursor-ew-resize appearance-none bg-white/30 accent-white"
+          />
+          <span className="w-10 shrink-0 text-right text-white/60">{roughness.toFixed(2)}</span>
+        </div>
+        <div className="mt-2 flex items-center gap-3 font-mono text-[11px] text-white/40">
+          <span className="w-20 shrink-0">noiseScale</span>
+          <input
+            type="range"
+            min={0}
+            max={20}
+            step={0.1}
+            value={noiseScale}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setNoiseScale(v);
+              apiRef.current?.setNoiseScale(v);
+            }}
+            className="h-px w-full cursor-ew-resize appearance-none bg-white/30 accent-white"
+          />
+          <span className="w-10 shrink-0 text-right text-white/60">{noiseScale.toFixed(1)}</span>
+        </div>
+        <div className="mt-2 flex items-center gap-3 font-mono text-[11px] text-white/40">
+          <span className="w-20 shrink-0">color</span>
+          <input
+            type="color"
+            value={tint}
+            onChange={(e) => {
+              setTint(e.target.value);
+              apiRef.current?.setTint(e.target.value);
+            }}
+            className="h-4 w-4 shrink-0 cursor-pointer border border-white/40 bg-transparent p-0"
+          />
+          <span className="truncate text-white/60">{tintRgb}</span>
+        </div>
+      </div>
+
+      <div className="eyebrow pointer-events-none absolute bottom-6 right-6 text-white/30">
         Drag to rotate
       </div>
     </div>

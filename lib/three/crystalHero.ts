@@ -1,15 +1,4 @@
 import * as THREE from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import {
-  EffectComposer,
-  RenderPass,
-  EffectPass,
-  BloomEffect,
-  VignetteEffect,
-  ChromaticAberrationEffect,
-  NoiseEffect,
-  BlendFunction,
-} from "postprocessing";
 import gsap from "gsap";
 
 export type CrystalHeroHandles = {
@@ -23,246 +12,253 @@ export type CrystalHeroHandles = {
 export type CrystalHeroApi = {
   dispose: () => void;
   resetOrientation: () => void;
+  setRoughness: (v: number) => void;
+  setNoiseScale: (v: number) => void;
+  setTint: (hex: string) => void;
 };
 
 const CONFIG = {
-  cameraFov: 34,
+  cameraFov: 38,
   cameraZ: 7.4,
-  ior: 1.55,
   letterHeight: 3.1,
   letterWidth: 2.35,
   letterBar: 0.78,
   letterDepth: 0.55,
   letterGap: 1.45,
-  wallRadius: 12,
-  wallHeight: 10,
-  floorY: -2.5,
-  maxTiltRad: THREE.MathUtils.degToRad(12),
-  // damped spring for mouse tilt — heavy, physical, settles without wobble
+  maxTiltRad: THREE.MathUtils.degToRad(10),
   tiltStiffness: 60,
   tiltDamping: 12,
-  bobAmplitude: 0.1,
+  bobAmplitude: 0.08,
   bobSpeed: 0.5,
-  parallax: 0.15,
-  wordmarkLines: ["DENTSU DATA", "ARTIST MONGOL"],
-  // LED show — hues cycled by the wall, lights, and glass tint
-  ledPalette: [
-    { h: 212, s: 0.95, l: 0.5 }, // blue
-    { h: 186, s: 0.95, l: 0.45 }, // cyan
-    { h: 264, s: 0.9, l: 0.55 }, // violet
-    { h: 316, s: 0.9, l: 0.5 }, // magenta
-    { h: 162, s: 0.9, l: 0.45 }, // teal
-  ],
-  ledSwitchInterval: 3.4,
-  ledLerpSpeed: 0.025,
+  parallax: 0.12,
+  wordmark: "DDAM",
+  // material defaults — mirrored by the MainLogo Material panel
+  roughness: 0.1,
+  noiseScale: 9.0,
 };
 
-function mulberry32(seed: number) {
-  let a = seed;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+/* ------------------------------------------------------------------ */
+/* Background: procedural glitch wall (zebra swirls, flicker tiles,   */
+/* triangle watermarks, glitch bands, film grain)                     */
+/* ------------------------------------------------------------------ */
+const BG_VERT = /* glsl */ `
+  void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
 
-/** Static base structure of the LED wall: dark tiles + fine grid. */
-function buildWallBaseTexture(): HTMLCanvasElement {
-  const size = 1024;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+const BG_FRAG = /* glsl */ `
+  precision highp float;
+  uniform float uTime;
+  uniform vec2  uRes;
 
-  ctx.fillStyle = "#04060a";
-  ctx.fillRect(0, 0, size, size);
+  float hash(vec2 p){
+    p = fract(p*vec2(123.34, 456.21));
+    p += dot(p, p+45.32);
+    return fract(p.x*p.y);
+  }
 
-  const cols = 10;
-  const rows = 10;
-  const cell = size / cols;
-  const rand = mulberry32(7);
+  float triSDF(vec2 p, float r){
+    const float k = 1.7320508;
+    p.x = abs(p.x) - r;
+    p.y = p.y + r/k;
+    if (p.x + k*p.y > 0.0) p = vec2(p.x - k*p.y, -k*p.x - p.y)/2.0;
+    p.x -= clamp(p.x, -2.0*r, 0.0);
+    return -length(p)*sign(p.y);
+  }
 
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const px = x * cell;
-      const py = y * cell;
-      const shade = 5 + Math.floor(rand() * 8);
-      ctx.fillStyle = `rgb(${shade},${shade + 1},${shade + 3})`;
-      ctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
+  void main(){
+    vec2 frag = gl_FragCoord.xy;
+    vec2 uv = frag / uRes;
+    float aspect = uRes.x / uRes.y;
+    vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
 
-      ctx.strokeStyle = "rgba(255,255,255,0.035)";
-      ctx.lineWidth = 0.5;
-      const sub = cell / 5;
-      for (let i = 1; i < 5; i++) {
-        ctx.beginPath();
-        ctx.moveTo(px + i * sub, py);
-        ctx.lineTo(px + i * sub, py + cell);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(px, py + i * sub);
-        ctx.lineTo(px + cell, py + i * sub);
-        ctx.stroke();
-      }
+    float t = uTime;
 
-      ctx.strokeStyle = "rgba(255,255,255,0.09)";
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(px, py, cell, cell);
-
-      if (rand() > 0.62) {
-        ctx.strokeStyle = "rgba(255,255,255,0.05)";
-        ctx.beginPath();
-        const cx = px + cell / 2;
-        const cy = py + cell / 2;
-        const r = cell * 0.18;
-        ctx.moveTo(cx, cy - r);
-        ctx.lineTo(cx + r, cy + r);
-        ctx.lineTo(cx - r, cy + r);
-        ctx.closePath();
-        ctx.stroke();
-      }
+    /* occasional horizontal glitch displacement */
+    float band  = floor(uv.y * 36.0);
+    float gseed = hash(vec2(band, floor(t*2.5)));
+    if (gseed > 0.965){
+      uv.x += (hash(vec2(band, floor(t*7.0))) - 0.5) * 0.10;
+      p.x  += (gseed - 0.98) * 2.0;
     }
-  }
 
-  return canvas;
-}
+    /* curved zebra stripes around two swirl centers */
+    vec2 c1 = p - vec2(-0.45, 0.18);
+    vec2 c2 = p - vec2( 0.52,-0.25);
+    float a1 = atan(c1.y, c1.x), r1 = length(c1);
+    float a2 = atan(c2.y, c2.x), r2 = length(c2);
+    float sw1 = sin(a1*4.0 + r1*13.0 - t*0.12);
+    float sw2 = sin(a2*5.0 - r2*15.0 + t*0.09);
+    float blendMask = smoothstep(-0.3, 0.3, sin(p.x*1.3 + p.y*0.9 + t*0.05));
+    float field = mix(sw1, sw2, blendMask);
+    float zebra = smoothstep(-0.08, 0.08, field);
+    float zebraMask = smoothstep(1.65, 0.30, min(r1, r2));
+    float stripes = zebra * zebraMask;
 
-/**
- * Glow pattern for the LED wall, drawn in WHITE on black.
- * Hue comes from wallMat.emissive (lerped each frame), so color
- * transitions stay perfectly smooth while the lit-tile pattern jumps
- * like a real LED show.
- */
-function paintGlowPattern(ctx: CanvasRenderingContext2D, size: number, seed: number) {
-  const cols = 10;
-  const rows = 10;
-  const cell = size / cols;
-  const rand = mulberry32(seed);
+    /* tile grid with per-tile flicker */
+    vec2 grid = vec2(26.0*aspect, 26.0);
+    vec2 cell = floor(uv * grid);
+    vec2 cuv  = fract(uv * grid);
+    float flickStep = floor(t*3.0);
+    float fl = hash(cell + flickStep*0.013);
+    float tileLum = step(0.95, fl) * 0.05 + step(0.99, fl) * 0.14;
+    float lineSum = (step(cuv.x, 0.035) + step(1.0-0.035, cuv.x)
+                   + step(cuv.y, 0.035) + step(1.0-0.035, cuv.y));
+    float gridLines = clamp(lineSum, 0.0, 1.0) * 0.045;
 
-  ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, size, size);
-
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      if (rand() <= 0.86) continue;
-      const px = x * cell;
-      const py = y * cell;
-
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
-
-      const grad = ctx.createRadialGradient(
-        px + cell / 2,
-        py + cell / 2,
-        0,
-        px + cell / 2,
-        py + cell / 2,
-        cell * 0.9
-      );
-      grad.addColorStop(0, "rgba(255,255,255,0.6)");
-      grad.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = grad;
-      ctx.fillRect(px - cell, py - cell, cell * 3, cell * 3);
+    /* scattered triangle watermarks */
+    float triMark = 0.0;
+    float tsel = hash(cell*1.7 + 3.1);
+    if (tsel > 0.90){
+      float d = triSDF((cuv - 0.5)*2.2, 0.62);
+      triMark = (1.0 - smoothstep(0.02, 0.09, abs(d))) * 0.10;
     }
+
+    vec3 col = vec3(0.010);
+    col += vec3(0.105) * stripes;
+    col += vec3(1.0) * tileLum;
+    col += vec3(1.0) * gridLines;
+    col += vec3(1.0) * triMark * 0.7;
+
+    /* film noise */
+    col += (hash(frag + fract(t)*111.0) - 0.5) * 0.035;
+
+    /* subtle centre glow so the glass has something to catch */
+    col += vec3(0.03) * smoothstep(0.9, 0.0, length(p));
+
+    gl_FragColor = vec4(col, 1.0);
   }
-}
+`;
 
-function buildNoiseNormalMap(): HTMLCanvasElement {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const imageData = ctx.createImageData(size, size);
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    imageData.data[i] = 128 + (Math.random() * 2 - 1) * 16;
-    imageData.data[i + 1] = 128 + (Math.random() * 2 - 1) * 16;
-    imageData.data[i + 2] = 255;
-    imageData.data[i + 3] = 255;
+/* ------------------------------------------------------------------ */
+/* Glass: screen-space refraction sampling the background target,     */
+/* with per-channel offsets (chromatic dispersion) + fresnel + streaks */
+/* ------------------------------------------------------------------ */
+const GLASS_VERT = /* glsl */ `
+  varying vec3 vN;
+  varying vec3 vView;
+  varying vec3 vWorld;
+  void main(){
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorld = wp.xyz;
+    vN = normalize(normalMatrix * normal);
+    vec4 mv = viewMatrix * wp;
+    vView = -mv.xyz;
+    gl_Position = projectionMatrix * mv;
   }
-  ctx.putImageData(imageData, 0, 0);
-  return canvas;
-}
+`;
 
-/** Blotchy roughness map — smudged frost patches over clearer glass, like hand-finished crystal. */
-function buildFrostRoughnessMap(): HTMLCanvasElement {
-  const size = 512;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+const GLASS_FRAG = /* glsl */ `
+  precision highp float;
+  uniform sampler2D uBg;
+  uniform vec2  uRes;
+  uniform float uTime;
+  uniform float uRough;
+  uniform float uNoise;
+  uniform vec3  uTint;
+  varying vec3 vN;
+  varying vec3 vView;
+  varying vec3 vWorld;
 
-  // base: already hazy — this glass is never clear
-  ctx.fillStyle = "rgb(92,92,92)";
-  ctx.fillRect(0, 0, size, size);
-
-  const rand = mulberry32(99);
-  ctx.filter = "blur(26px)";
-  for (let i = 0; i < 34; i++) {
-    const x = rand() * size;
-    const y = rand() * size;
-    const rx = 30 + rand() * 120;
-    const ry = 20 + rand() * 90;
-    const v = 145 + Math.floor(rand() * 75);
-    ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
-    ctx.beginPath();
-    ctx.ellipse(x, y, rx, ry, rand() * Math.PI, 0, Math.PI * 2);
-    ctx.fill();
+  float hash(vec2 p){
+    p = fract(p*vec2(123.34, 456.21));
+    p += dot(p, p+45.32);
+    return fract(p.x*p.y);
   }
-  ctx.filter = "none";
+  float noise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+               mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y);
+  }
 
-  return canvas;
-}
+  void main(){
+    vec2 suv = gl_FragCoord.xy / uRes;
+    vec3 n  = normalize(vN);
+    vec3 v  = normalize(vView);
+    float ndv = clamp(dot(n, v), 0.0, 1.0);
 
-function buildWordmarkTexture(lines: string[]): HTMLCanvasElement {
-  const w = 2048;
-  const h = 1024;
+    /* refraction offset from surface normal (screen space) */
+    vec2 off = n.xy * 0.22;
+
+    /* facet noise — bends light per-surface-region */
+    float fn = noise(vWorld.xy * uNoise + vWorld.z * 3.0);
+    off += (fn - 0.5) * 0.035;
+
+    /* chromatic dispersion */
+    float disp = 0.035 + uRough * 0.03;
+    vec3 col = vec3(0.0);
+    float blur = uRough * 0.035;
+    for (int i = 0; i < 3; i++){
+      float fi = float(i);
+      vec2 j = (vec2(hash(gl_FragCoord.xy + fi), hash(gl_FragCoord.yx + fi + 7.0)) - 0.5) * blur;
+      col.r += texture2D(uBg, clamp(suv + (off + j) * (1.0 + disp), 0.001, 0.999)).r;
+      col.g += texture2D(uBg, clamp(suv + (off + j)              , 0.001, 0.999)).g;
+      col.b += texture2D(uBg, clamp(suv + (off + j) * (1.0 - disp), 0.001, 0.999)).b;
+    }
+    col /= 3.0;
+
+    /* glass brightness + fresnel rim */
+    float fres = pow(1.0 - ndv, 2.5);
+    col = col * (1.55 + fres * 0.9);
+    col += vec3(1.0) * fres * 0.85;
+
+    /* moving specular streaks */
+    vec3 l1 = normalize(vec3( 0.6, 0.8, 0.5));
+    vec3 l2 = normalize(vec3(-0.7, -0.2, 0.6));
+    vec3 rf = reflect(-v, n);
+    float sp = pow(max(dot(rf, l1), 0.0), 90.0) * 2.2
+             + pow(max(dot(rf, l2), 0.0), 60.0) * 1.2;
+    sp *= 0.7 + 0.3 * sin(uTime * 2.0 + vWorld.x * 4.0);
+    col += vec3(sp);
+
+    /* rainbow sheen along facets */
+    float h = fract(fn * 2.0 + uTime * 0.05);
+    vec3 sheen = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + h));
+    col += sheen * fres * 0.25;
+
+    col *= uTint;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+/* Giant wordmark drawn to a canvas, auto-fit to width. */
+function buildWordmarkTexture(word: string): { canvas: HTMLCanvasElement; aspect: number } {
+  const W = 2048;
+  const H = 640;
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = W;
+  canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-
-  ctx.clearRect(0, 0, w, h);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const lineHeight = h / (lines.length + 0.4);
-  lines.forEach((line, i) => {
-    let fontSize = lineHeight * 0.82;
-    const font = (s: number) => `900 ${s}px "Helvetica Neue", Arial, system-ui, sans-serif`;
-    ctx.font = font(fontSize);
-    const measured = ctx.measureText(line).width;
-    if (measured > w * 0.94) fontSize *= (w * 0.94) / measured;
-    ctx.font = font(fontSize);
+  let fontSize = 400;
+  let spacing = 90;
+  const measure = () => {
+    ctx.font = `900 ${fontSize}px "Helvetica Neue", Arial, system-ui, sans-serif`;
+    const ws: number[] = [];
+    let tot = 0;
+    for (const ch of word) {
+      const w = ctx.measureText(ch).width;
+      ws.push(w);
+      tot += w + spacing;
+    }
+    return { ws, tot: tot - spacing };
+  };
+  let m = measure();
+  const fit = Math.min(1, (W * 0.94) / m.tot);
+  fontSize = Math.floor(fontSize * fit);
+  spacing = Math.floor(spacing * fit);
+  m = measure();
 
-    const y = (i + 0.75) * lineHeight;
-    ctx.shadowColor = "rgba(255,255,255,0.9)";
-    ctx.shadowBlur = 42;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(line, w / 2, y);
-    ctx.shadowBlur = 0;
-    ctx.fillText(line, w / 2, y);
-  });
-
-  return canvas;
-}
-
-/** Soft elliptical contact shadow under the monogram. */
-function buildContactShadowTexture(): HTMLCanvasElement {
-  const size = 512;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, "rgba(0,0,0,0.85)");
-  grad.addColorStop(0.55, "rgba(0,0,0,0.4)");
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  return canvas;
+  let x = (W - m.tot) / 2;
+  for (let i = 0; i < word.length; i++) {
+    ctx.fillText(word[i], x + m.ws[i] / 2, H / 2 + 10);
+    x += m.ws[i] + spacing;
+  }
+  return { canvas, aspect: W / H };
 }
 
 /** "D" letterform: flat left bar, semicircular right bowl, counter hole. */
@@ -290,151 +286,102 @@ function buildDShape(width: number, height: number, bar: number): THREE.Shape {
 }
 
 export function createCrystalHero(container: HTMLDivElement, handles: CrystalHeroHandles = {}): CrystalHeroApi {
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x02040a, 0.034);
-
-  const camera = new THREE.PerspectiveCamera(CONFIG.cameraFov, 1, 0.1, 100);
-  camera.position.set(0, 0.65, CONFIG.cameraZ);
-  const baseCameraPos = camera.position.clone();
-  const lookTarget = new THREE.Vector3(0, -0.1, 0);
-
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-  renderer.setClearColor(0x050505, 1);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setClearColor(0x000000, 1);
+  // shader values are authored as final output — skip the sRGB re-encode
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.autoClear = false;
   container.appendChild(renderer.domElement);
   renderer.domElement.style.cssText = "position:absolute;inset:0;width:100%;height:100%;opacity:0;";
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environment = envTexture;
+  const drawSize = new THREE.Vector2();
 
-  // --- curved LED wall (theater screen wrapping the stage) ---
-  const wallGeo = new THREE.CylinderGeometry(
-    CONFIG.wallRadius,
-    CONFIG.wallRadius,
-    CONFIG.wallHeight,
-    28,
-    16,
-    true,
-    Math.PI * 0.65,
-    Math.PI * 1.7
-  );
-  const wallBaseTexture = new THREE.CanvasTexture(buildWallBaseTexture());
-  wallBaseTexture.colorSpace = THREE.SRGBColorSpace;
-  wallBaseTexture.wrapS = THREE.RepeatWrapping;
-  wallBaseTexture.wrapT = THREE.RepeatWrapping;
-  wallBaseTexture.repeat.set(6, 3);
+  /* --- background scene → render target --- */
+  const bgScene = new THREE.Scene();
+  const bgCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 10);
 
-  const glowCanvas = document.createElement("canvas");
-  glowCanvas.width = 1024;
-  glowCanvas.height = 1024;
-  const glowCtx = glowCanvas.getContext("2d")!;
-  let glowSeed = 1;
-  paintGlowPattern(glowCtx, 1024, glowSeed);
-  const glowTexture = new THREE.CanvasTexture(glowCanvas);
-  glowTexture.wrapS = THREE.RepeatWrapping;
-  glowTexture.wrapT = THREE.RepeatWrapping;
-  glowTexture.repeat.set(6, 3);
+  const makeTarget = () => {
+    renderer.getDrawingBufferSize(drawSize);
+    return new THREE.WebGLRenderTarget(Math.max(2, drawSize.x), Math.max(2, drawSize.y), {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+  };
+  let bgTarget: THREE.WebGLRenderTarget | null = null;
 
-  const wallMat = new THREE.MeshStandardMaterial({
-    map: wallBaseTexture,
-    side: THREE.BackSide,
-    roughness: 0.85,
-    metalness: 0.15,
-    emissive: new THREE.Color().setHSL(212 / 360, 0.9, 0.6),
-    emissiveMap: glowTexture,
-    emissiveIntensity: 0.6,
-  });
-  const wall = new THREE.Mesh(wallGeo, wallMat);
-  wall.position.z = -2.5;
-  wall.position.y = 0.8;
-  scene.add(wall);
-
-  // --- stage floor: glossy dark deck that catches LED + spotlight ---
-  const floorGeo = new THREE.CircleGeometry(15, 48);
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x07090d,
-    metalness: 0.75,
-    roughness: 0.28,
-    envMap: envTexture,
-    envMapIntensity: 0.7,
-  });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = CONFIG.floorY;
-  scene.add(floor);
-
-  const shadowTexture = new THREE.CanvasTexture(buildContactShadowTexture());
-  const shadowMat = new THREE.MeshBasicMaterial({
-    map: shadowTexture,
-    transparent: true,
+  const bgUniforms = {
+    uTime: { value: 0 },
+    uRes: { value: new THREE.Vector2(2, 2) },
+  };
+  const bgMat = new THREE.ShaderMaterial({
+    uniforms: bgUniforms,
     depthWrite: false,
-    opacity: 0.75,
+    depthTest: false,
+    vertexShader: BG_VERT,
+    fragmentShader: BG_FRAG,
   });
-  const contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.6), shadowMat);
-  contactShadow.rotation.x = -Math.PI / 2;
-  contactShadow.position.y = CONFIG.floorY + 0.01;
-  contactShadow.position.x = 0.1;
-  scene.add(contactShadow);
+  const bgQuadGeo = new THREE.PlaneGeometry(2, 2);
+  bgScene.add(new THREE.Mesh(bgQuadGeo, bgMat));
 
-  // --- giant glowing wordmark behind the monogram ---
-  const wordmarkTexture = new THREE.CanvasTexture(buildWordmarkTexture(CONFIG.wordmarkLines));
-  wordmarkTexture.colorSpace = THREE.SRGBColorSpace;
-  const wordmarkMat = new THREE.MeshBasicMaterial({
-    map: wordmarkTexture,
+  const wordmark = buildWordmarkTexture(CONFIG.wordmark);
+  const textTexture = new THREE.CanvasTexture(wordmark.canvas);
+  textTexture.anisotropy = 4;
+  const textMat = new THREE.MeshBasicMaterial({
+    map: textTexture,
     transparent: true,
-    toneMapped: false,
+    depthTest: false,
     depthWrite: false,
-    fog: false,
   });
-  const wordmark = new THREE.Mesh(new THREE.PlaneGeometry(15, 7.5), wordmarkMat);
-  wordmark.position.set(0, 0.2, -3.6);
-  scene.add(wordmark);
+  const textGeo = new THREE.PlaneGeometry(1, 1);
+  const textMesh = new THREE.Mesh(textGeo, textMat);
+  bgScene.add(textMesh);
 
-  // --- glass "DD" monogram: the main character on stage ---
+  function layoutText() {
+    const rect = container.getBoundingClientRect();
+    const aspect = Math.max(0.2, rect.width) / Math.max(0.2, rect.height);
+    const w = 1.84;
+    const h = (w / wordmark.aspect) * aspect;
+    textMesh.scale.set(w, Math.min(h, 1.9), 1);
+    textMesh.position.set(0, 0.02, -1);
+  }
+
+  /* --- blit quad (draws the bg target to screen) --- */
+  const blitScene = new THREE.Scene();
+  const blitMat = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false });
+  const blitGeo = new THREE.PlaneGeometry(2, 2);
+  blitScene.add(new THREE.Mesh(blitGeo, blitMat));
+
+  /* --- main scene: DD glass monogram --- */
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(CONFIG.cameraFov, 1, 0.1, 100);
+  camera.position.set(0, 0.15, CONFIG.cameraZ);
+  const baseCameraPos = camera.position.clone();
+  const lookTarget = new THREE.Vector3(0, -0.1, 0);
+
+  const glassUniforms = {
+    uBg: { value: null as THREE.Texture | null },
+    uRes: { value: new THREE.Vector2(2, 2) },
+    uTime: { value: 0 },
+    uRough: { value: CONFIG.roughness },
+    uNoise: { value: CONFIG.noiseScale },
+    uTint: { value: new THREE.Color(1, 1, 1) },
+  };
+  const glassMat = new THREE.ShaderMaterial({
+    uniforms: glassUniforms,
+    vertexShader: GLASS_VERT,
+    fragmentShader: GLASS_FRAG,
+  });
+
   const dShape = buildDShape(CONFIG.letterWidth, CONFIG.letterHeight, CONFIG.letterBar);
   const dGeo = new THREE.ExtrudeGeometry(dShape, {
     depth: CONFIG.letterDepth,
     bevelEnabled: true,
-    bevelThickness: 0.07,
-    bevelSize: 0.06,
-    bevelSegments: 5,
-    curveSegments: 40,
+    bevelThickness: 0.09,
+    bevelSize: 0.08,
+    bevelSegments: 3,
+    curveSegments: 24,
   });
   dGeo.center();
-
-  const normalTexture = new THREE.CanvasTexture(buildNoiseNormalMap());
-  normalTexture.wrapS = THREE.RepeatWrapping;
-  normalTexture.wrapT = THREE.RepeatWrapping;
-  normalTexture.repeat.set(2, 2);
-
-  const frostTexture = new THREE.CanvasTexture(buildFrostRoughnessMap());
-  frostTexture.wrapS = THREE.RepeatWrapping;
-  frostTexture.wrapT = THREE.RepeatWrapping;
-
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    transmission: 1,
-    thickness: 2.8,
-    roughness: 1, // driven by the frost roughness map
-    roughnessMap: frostTexture,
-    ior: CONFIG.ior,
-    metalness: 0,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.18,
-    normalMap: normalTexture,
-    normalScale: new THREE.Vector2(0.09, 0.09),
-    envMap: envTexture,
-    envMapIntensity: 1.7,
-    color: new THREE.Color(0xf2f7ff),
-    attenuationColor: new THREE.Color(0xa8d4ff),
-    attenuationDistance: 2.6,
-    specularIntensity: 1,
-    iridescence: 0.22,
-    iridescenceIOR: 1.3,
-    dispersion: 4,
-  });
 
   const monogram = new THREE.Group();
   const d1 = new THREE.Mesh(dGeo, glassMat);
@@ -455,63 +402,12 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   const deltaQuat = new THREE.Quaternion();
   const finalQuat = new THREE.Quaternion();
 
-  // --- stage lighting ---
-  const keyLight = new THREE.DirectionalLight(0xe8f0ff, 1.9);
-  keyLight.position.set(3, 4, 5);
-  scene.add(keyLight);
-
-  // overhead spotlight — theatrical key on the main character
-  const spot = new THREE.SpotLight(0xffffff, 55, 30, 0.45, 0.9, 1.6);
-  spot.position.set(0, 7.5, 3.5);
-  spot.target = monogram;
-  scene.add(spot);
-
-  // LED wash lights — tinted by the current LED color each frame
-  const ledWash = new THREE.PointLight(0x3f8fe0, 6, 26, 2);
-  ledWash.position.set(-4, -1, 3);
-  scene.add(ledWash);
-
-  const ledWash2 = new THREE.PointLight(0x3f8fe0, 4, 26, 2);
-  ledWash2.position.set(4.5, 1.5, 1.5);
-  scene.add(ledWash2);
-
-  const ambient = new THREE.HemisphereLight(0x2c4a72, 0x05070a, 0.55);
-  scene.add(ambient);
-
-  // --- postprocessing ---
-  const composer = new EffectComposer(renderer, { multisampling: 4 });
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new BloomEffect({ intensity: 1.0, luminanceThreshold: 0.3, luminanceSmoothing: 0.25, mipmapBlur: true });
-  const chroma = new ChromaticAberrationEffect({
-    offset: new THREE.Vector2(0.0006, 0.0006),
-    radialModulation: false,
-    modulationOffset: 0,
-  });
-  const vignette = new VignetteEffect({ darkness: 0.68, offset: 0.32 });
-  const grain = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: true });
-  grain.blendMode.opacity.value = 0.06;
-  composer.addPass(new EffectPass(camera, bloom, chroma, vignette, grain));
-
-  // --- LED show state ---
-  const currentLed = new THREE.Color().setHSL(
-    CONFIG.ledPalette[0].h / 360,
-    CONFIG.ledPalette[0].s,
-    CONFIG.ledPalette[0].l
-  );
-  const targetLed = currentLed.clone();
-  const glassTintBase = new THREE.Color(0xdceafd);
-  const workColor = new THREE.Color();
-  let paletteIndex = 0;
-  let ledTimer = 0;
-
-  // --- pointer state ---
+  /* --- pointer state --- */
   const pointer = { x: 0, y: 0 };
   const smoothedPointer = { x: 0, y: 0 };
-  // damped-spring tilt state (angle + angular velocity per axis)
   const tilt = { x: 0, y: 0, vx: 0, vy: 0 };
   let idleFade = 1;
-  // drag-to-spin state — direct manipulation with momentum, alche-style
-  const DRAG_SENS = 4.6; // radians across a full-viewport sweep
+  const DRAG_SENS = 4.6;
   const drag = { active: false, lastX: 0, lastY: 0, lastT: 0, velYaw: 0, velPitch: 0 };
 
   function showCrosshair(visible: boolean) {
@@ -528,7 +424,6 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     pointer.x = (px / rect.width) * 2 - 1;
     pointer.y = (py / rect.height) * 2 - 1;
 
-    // cursor-tracking HUD: the user always sees where the mouse is
     if (handles.crosshairV) handles.crosshairV.style.transform = `translate3d(${px}px,0,0)`;
     if (handles.crosshairH) handles.crosshairH.style.transform = `translate3d(0,${py}px,0)`;
     if (handles.coordText) {
@@ -543,21 +438,12 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
       const yawD = ((e.clientX - drag.lastX) / rect.width) * DRAG_SENS;
       const pitchD = ((e.clientY - drag.lastY) / rect.height) * DRAG_SENS * 0.85;
 
-      // rotate around world axes — the letters follow the hand directly
       workEuler.set(pitchD, yawD, 0, "XYZ");
       deltaQuat.setFromEuler(workEuler);
       spinQuat.premultiply(deltaQuat);
 
-      drag.velYaw = THREE.MathUtils.clamp(
-        THREE.MathUtils.lerp(drag.velYaw, yawD / dtm, 0.5),
-        -6,
-        6
-      );
-      drag.velPitch = THREE.MathUtils.clamp(
-        THREE.MathUtils.lerp(drag.velPitch, pitchD / dtm, 0.5),
-        -6,
-        6
-      );
+      drag.velYaw = THREE.MathUtils.clamp(THREE.MathUtils.lerp(drag.velYaw, yawD / dtm, 0.5), -6, 6);
+      drag.velPitch = THREE.MathUtils.clamp(THREE.MathUtils.lerp(drag.velPitch, pitchD / dtm, 0.5), -6, 6);
       drag.lastX = e.clientX;
       drag.lastY = e.clientY;
       drag.lastT = now;
@@ -608,10 +494,20 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     camera.updateProjectionMatrix();
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h);
-    composer.setSize(w, h);
+
+    bgTarget?.dispose();
+    bgTarget = makeTarget();
+    blitMat.map = bgTarget.texture;
+    blitMat.needsUpdate = true;
+    glassUniforms.uBg.value = bgTarget.texture;
+
+    renderer.getDrawingBufferSize(drawSize);
+    bgUniforms.uRes.value.copy(drawSize);
+    glassUniforms.uRes.value.copy(drawSize);
 
     const fit = Math.min(1, w / 900);
-    monogram.scale.setScalar(0.64 + fit * 0.16);
+    monogram.scale.setScalar(0.6 + fit * 0.16);
+    layoutText();
   }
 
   const resizeObserver = new ResizeObserver(resize);
@@ -625,6 +521,8 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     timer.update();
     const dt = Math.min(timer.getDelta(), 0.05);
     const t = timer.getElapsed();
+    bgUniforms.uTime.value = t;
+    glassUniforms.uTime.value = t;
 
     smoothedPointer.x += (pointer.x - smoothedPointer.x) * 0.05;
     smoothedPointer.y += (pointer.y - smoothedPointer.y) * 0.05;
@@ -649,19 +547,16 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
         drag.velYaw *= decay;
         drag.velPitch *= decay;
       } else {
-        // untouched, the sculpture keeps a slow museum turn
         workEuler.set(0, 0.055 * dt * idleFade, 0, "XYZ");
         deltaQuat.setFromEuler(workEuler);
         spinQuat.premultiply(deltaQuat);
       }
     }
 
-    // idle breathing fades while the pointer is in command
     const activity = Math.min(1, (Math.abs(pointer.x) + Math.abs(pointer.y)) * 1.6);
     idleFade += (1 - activity - idleFade) * 0.02;
     const idlePitch = Math.sin(t * 0.21) * 0.03 * idleFade;
 
-    // banking roll from total angular velocity — the mass is felt
     const roll = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.4) * 0.04, -0.06, 0.06);
 
     workEuler.set(tilt.x + idlePitch, tilt.y, roll, "XYZ");
@@ -674,34 +569,10 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     d2.rotation.y = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.5) * 0.045, -0.09, 0.09);
 
     monogram.position.y = 0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude;
-    contactShadow.material.opacity = 0.75 - Math.sin(t * CONFIG.bobSpeed) * 0.12;
 
     camera.position.x = baseCameraPos.x + smoothedPointer.x * CONFIG.parallax;
     camera.position.y = baseCameraPos.y - smoothedPointer.y * CONFIG.parallax;
     camera.lookAt(lookTarget);
-
-    // --- LED show ---
-    ledTimer += dt;
-    if (ledTimer >= CONFIG.ledSwitchInterval) {
-      ledTimer = 0;
-      paletteIndex = (paletteIndex + 1) % CONFIG.ledPalette.length;
-      const next = CONFIG.ledPalette[paletteIndex];
-      targetLed.setHSL(next.h / 360, next.s, next.l);
-      glowSeed += 13;
-      paintGlowPattern(glowCtx, 1024, glowSeed);
-      glowTexture.needsUpdate = true;
-    }
-    currentLed.lerp(targetLed, CONFIG.ledLerpSpeed);
-
-    wallMat.emissive.copy(currentLed);
-    wallMat.emissiveIntensity = 0.95 + Math.sin(t * 1.7) * 0.18;
-    ledWash.color.copy(currentLed);
-    ledWash.intensity = 7 + Math.sin(t * 0.9) * 1.8;
-    ledWash2.color.copy(currentLed);
-    ledWash2.intensity = 5 + Math.sin(t * 1.2 + 1.5) * 1.4;
-    // the DD breathes with the LED color: glass tint follows the wash
-    glassMat.attenuationColor.copy(workColor.copy(currentLed).lerp(glassTintBase, 0.3));
-    wordmarkMat.opacity = 0.92 + Math.sin(t * 0.8) * 0.08;
 
     if (handles.quatText) {
       const q = monogram.quaternion;
@@ -711,15 +582,23 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
       handles.gizmoGroup.style.transform = `rotateX(${smoothedPointer.y * 12}deg) rotateY(${smoothedPointer.x * 12}deg)`;
     }
 
-    composer.render();
+    /* render: bg → target, blit to screen, glass on top */
+    if (bgTarget) {
+      renderer.setRenderTarget(bgTarget);
+      renderer.clear();
+      renderer.render(bgScene, bgCam);
+      renderer.setRenderTarget(null);
+      renderer.clear();
+      renderer.render(blitScene, bgCam);
+      renderer.render(scene, camera);
+    }
+
     rafId = requestAnimationFrame(frame);
   }
 
   const tl = gsap.timeline();
   tl.to(renderer.domElement, { opacity: 1, duration: 1.6, ease: "power2.out" });
   tl.from(monogram.position, { z: -1.6, duration: 1.9, ease: "expo.out" }, "<");
-  tl.from(spot, { intensity: 0, duration: 2.2, ease: "power2.out" }, "<0.3");
-  tl.from(ledWash, { intensity: 0, duration: 1.8, ease: "power2.out" }, "<");
 
   rafId = requestAnimationFrame(frame);
 
@@ -737,6 +616,18 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     spinQuat.copy(homeQuat);
   }
 
+  function setRoughness(v: number) {
+    glassUniforms.uRough.value = THREE.MathUtils.clamp(v, 0, 1);
+  }
+
+  function setNoiseScale(v: number) {
+    glassUniforms.uNoise.value = THREE.MathUtils.clamp(v, 0, 20);
+  }
+
+  function setTint(hex: string) {
+    glassUniforms.uTint.value.set(hex);
+  }
+
   function dispose() {
     cancelAnimationFrame(rafId);
     timer.dispose();
@@ -748,30 +639,21 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     container.removeEventListener("pointerleave", onPointerLeave);
     tl.kill();
 
-    composer.dispose();
+    bgTarget?.dispose();
+    bgQuadGeo.dispose();
+    bgMat.dispose();
+    textGeo.dispose();
+    textMat.dispose();
+    textTexture.dispose();
+    blitGeo.dispose();
+    blitMat.dispose();
     dGeo.dispose();
     glassMat.dispose();
-    wallGeo.dispose();
-    wallMat.dispose();
-    wallBaseTexture.dispose();
-    glowTexture.dispose();
-    floorGeo.dispose();
-    floorMat.dispose();
-    contactShadow.geometry.dispose();
-    shadowMat.dispose();
-    shadowTexture.dispose();
-    wordmark.geometry.dispose();
-    wordmarkMat.dispose();
-    wordmarkTexture.dispose();
-    normalTexture.dispose();
-    frostTexture.dispose();
-    envTexture.dispose();
-    pmrem.dispose();
     renderer.dispose();
     if (renderer.domElement.parentNode === container) {
       container.removeChild(renderer.domElement);
     }
   }
 
-  return { dispose, resetOrientation };
+  return { dispose, resetOrientation, setRoughness, setNoiseScale, setTint };
 }
