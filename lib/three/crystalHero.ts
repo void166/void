@@ -1,5 +1,9 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import gsap from "gsap";
+
+/** Drop your own model at public/models/hero.glb and it becomes the glass centerpiece. */
+const HERO_MODEL_URL = "/models/hero.glb";
 
 export type CrystalHeroHandles = {
   quatText?: HTMLElement | null;
@@ -22,18 +26,13 @@ export type CrystalHeroApi = {
 const CONFIG = {
   cameraFov: 38,
   cameraZ: 7.4,
-  letterHeight: 3.1,
-  letterWidth: 2.35,
-  letterBar: 0.78,
-  letterDepth: 0.55,
-  letterGap: 1.45,
   maxTiltRad: THREE.MathUtils.degToRad(10),
   tiltStiffness: 60,
   tiltDamping: 12,
   bobAmplitude: 0.08,
   bobSpeed: 0.5,
   parallax: 0.12,
-  wordmark: "DDAM",
+  wordmark: "RENCHIN",
   // material defaults — mirrored by the MainLogo Material panel
   roughness: 0.1,
   noiseScale: 9.0,
@@ -271,28 +270,42 @@ function buildWordmarkTexture(word: string): { canvas: HTMLCanvasElement; aspect
   return { canvas, aspect: W / H };
 }
 
-/** "D" letterform: flat left bar, semicircular right bowl, counter hole. */
-function buildDShape(width: number, height: number, bar: number): THREE.Shape {
-  const radius = height / 2;
-  const bowlX = width - radius;
-
+/** Glass prism: triangle ring — a personal mark, not a corporate letterform. */
+function makeLogoGeometry(): THREE.ExtrudeGeometry {
+  const R = 1.5;
+  const r = 0.68;
+  const tri = (radius: number, sign: number) => {
+    const pts: THREE.Vector2[] = [];
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + i * ((Math.PI * 2) / 3) * sign;
+      pts.push(new THREE.Vector2(Math.cos(a) * radius, -Math.sin(a) * radius));
+    }
+    return pts;
+  };
+  const outer = tri(R, 1);
   const shape = new THREE.Shape();
-  shape.moveTo(0, 0);
-  shape.lineTo(0, height);
-  shape.lineTo(bowlX, height);
-  shape.absarc(bowlX, radius, radius, Math.PI / 2, -Math.PI / 2, true);
-  shape.lineTo(0, 0);
-
-  const innerRadius = radius - bar;
+  shape.moveTo(outer[0].x, outer[0].y);
+  shape.lineTo(outer[1].x, outer[1].y);
+  shape.lineTo(outer[2].x, outer[2].y);
+  shape.closePath();
+  const inner = tri(r, -1);
   const hole = new THREE.Path();
-  hole.moveTo(bar, bar);
-  hole.lineTo(bowlX, bar);
-  hole.absarc(bowlX, radius, innerRadius, -Math.PI / 2, Math.PI / 2, false);
-  hole.lineTo(bar, height - bar);
-  hole.lineTo(bar, bar);
+  hole.moveTo(inner[0].x, inner[0].y);
+  hole.lineTo(inner[1].x, inner[1].y);
+  hole.lineTo(inner[2].x, inner[2].y);
+  hole.closePath();
   shape.holes.push(hole);
 
-  return shape;
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.6,
+    bevelEnabled: true,
+    bevelThickness: 0.11,
+    bevelSize: 0.1,
+    bevelSegments: 3,
+    curveSegments: 4,
+  });
+  geo.center();
+  return geo;
 }
 
 export function createCrystalHero(container: HTMLDivElement, handles: CrystalHeroHandles = {}): CrystalHeroApi {
@@ -384,27 +397,61 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     fragmentShader: GLASS_FRAG,
   });
 
-  const dShape = buildDShape(CONFIG.letterWidth, CONFIG.letterHeight, CONFIG.letterBar);
-  const dGeo = new THREE.ExtrudeGeometry(dShape, {
-    depth: CONFIG.letterDepth,
-    bevelEnabled: true,
-    bevelThickness: 0.09,
-    bevelSize: 0.08,
-    bevelSegments: 3,
-    curveSegments: 24,
-  });
-  dGeo.center();
+  const dGeo = makeLogoGeometry();
 
   const monogram = new THREE.Group();
   const d1 = new THREE.Mesh(dGeo, glassMat);
-  d1.position.x = -CONFIG.letterGap * 0.45;
   const d2 = new THREE.Mesh(dGeo, glassMat);
-  d2.position.x = CONFIG.letterGap * 0.75;
-  d2.position.z = -0.12;
+  d2.scale.setScalar(0.4);
+  d2.position.set(1.75, -0.85, -0.55);
+  d2.rotation.z = 0.5;
   monogram.add(d1, d2);
   monogram.rotation.set(0.1, 0.32, -0.05);
-  monogram.position.x = -0.25;
+  monogram.position.x = -0.1;
   scene.add(monogram);
+
+  /* --- optional custom centerpiece: swap the prism for the user's GLB --- */
+  const customGeos: THREE.BufferGeometry[] = [];
+  new GLTFLoader().load(
+    HERO_MODEL_URL,
+    (gltf) => {
+      const group = new THREE.Group();
+      gltf.scene.updateMatrixWorld(true);
+      gltf.scene.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const src = child as THREE.Mesh;
+          const geo = src.geometry.clone();
+          geo.applyMatrix4(src.matrixWorld);
+          if (!geo.getAttribute("normal")) geo.computeVertexNormals();
+          customGeos.push(geo);
+          group.add(new THREE.Mesh(geo, glassMat));
+        }
+      });
+      if (customGeos.length === 0) return; // nothing usable — keep the prism
+
+      /* auto-center, then scale so the model fills the stage:
+         height drives the fit, width/depth only cap runaway shapes */
+      const box = new THREE.Box3().setFromObject(group);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const fit = Math.min(
+        3.7 / Math.max(size.y, 0.001),
+        5.2 / Math.max(size.x, 0.001),
+        5.2 / Math.max(size.z, 0.001)
+      );
+      group.position.sub(center);
+      const holder = new THREE.Group();
+      holder.add(group);
+      holder.scale.setScalar(fit);
+
+      monogram.remove(d1); // the shard (d2) stays for depth layering
+      monogram.add(holder);
+    },
+    undefined,
+    () => {
+      /* no model at public/models/hero.glb — the glass prism remains */
+    }
+  );
 
   // spinQuat is the user-owned orientation — dragging writes into it, momentum keeps it alive
   const spinQuat = monogram.quaternion.clone();
@@ -413,6 +460,67 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   const hoverQuat = new THREE.Quaternion();
   const deltaQuat = new THREE.Quaternion();
   const finalQuat = new THREE.Quaternion();
+
+  /* --- floating code tags orbiting the centerpiece --- */
+  const CODE_TAGS = [
+    "</>", "{ }", "=>", "const", "async / await", "npm run dev",
+    "git push", "<div />", "useState()", "() => {}", "200 OK", "fetch()",
+  ];
+
+  function makeTagSprite(text: string, color: string, glow: string): THREE.Sprite {
+    const pad = 28;
+    const fs = 46;
+    const measure = document.createElement("canvas").getContext("2d")!;
+    measure.font = `600 ${fs}px "SF Mono", "Cascadia Code", Consolas, monospace`;
+    const w = Math.ceil(measure.measureText(text).width) + pad * 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = fs + pad * 2;
+    const ctx = canvas.getContext("2d")!;
+    ctx.font = `600 ${fs}px "SF Mono", "Cascadia Code", Consolas, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = color;
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    const sp = new THREE.Sprite(mat);
+    const s = 0.0042;
+    sp.scale.set(canvas.width * s, canvas.height * s, 1);
+    return sp;
+  }
+
+  type TagState = {
+    sprite: THREE.Sprite;
+    angle: number;
+    radius: number;
+    height: number;
+    speed: number;
+    phase: number;
+    base: number;
+  };
+  const tagGroup = new THREE.Group();
+  const tagStates: TagState[] = CODE_TAGS.map((text, i) => {
+    const accent = i % 3 === 0;
+    const sprite = makeTagSprite(
+      text,
+      accent ? "#59e3ff" : "rgba(255,255,255,0.9)",
+      accent ? "rgba(89,227,255,0.9)" : "rgba(255,255,255,0.55)"
+    );
+    tagGroup.add(sprite);
+    return {
+      sprite,
+      angle: i * 2.41, // golden-ish spread
+      radius: 2.5 + (i % 3) * 0.6,
+      height: -1.1 + (i % 5) * 0.62,
+      speed: 0.07 + (i % 4) * 0.028,
+      phase: i * 1.37,
+      base: accent ? 0.9 : 0.55,
+    };
+  });
+  scene.add(tagGroup);
 
   /* --- scroll state (0 = hero fully in view, 1 = scrolled past) --- */
   let scrollP = 0;
@@ -595,6 +703,18 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     monogram.position.y =
       0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude + smoothScrollP * 0.9;
 
+    /* code tags: slow elliptical orbit + bob + flicker, fading on scroll */
+    for (const ts of tagStates) {
+      const a = ts.angle + t * ts.speed;
+      ts.sprite.position.set(
+        Math.cos(a) * ts.radius,
+        ts.height + Math.sin(t * 0.8 + ts.phase) * 0.14,
+        Math.sin(a) * ts.radius * 0.55
+      );
+      (ts.sprite.material as THREE.SpriteMaterial).opacity =
+        ts.base * (0.7 + 0.3 * Math.sin(t * 1.7 + ts.phase)) * (1 - smoothScrollP);
+    }
+
     camera.position.x = baseCameraPos.x + smoothedPointer.x * CONFIG.parallax;
     camera.position.y = baseCameraPos.y - smoothedPointer.y * CONFIG.parallax;
     camera.position.z = baseCameraPos.z + smoothScrollP * 2.4;
@@ -676,6 +796,12 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     bgTarget?.dispose();
     bgQuadGeo.dispose();
     bgMat.dispose();
+    customGeos.forEach((g) => g.dispose());
+    for (const ts of tagStates) {
+      const m = ts.sprite.material as THREE.SpriteMaterial;
+      m.map?.dispose();
+      m.dispose();
+    }
     textGeo.dispose();
     textMat.dispose();
     textTexture.dispose();

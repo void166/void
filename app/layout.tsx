@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ScrollFX from "@/components/ScrollFX";
+import SplashScreen from "@/components/SplashScreen";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,11 +18,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Dentsu Data Artist Mongol | AI, Data & Digital Marketing",
-    template: "%s | Dentsu Data Artist Mongol",
+    default: "Renchin | Full-Stack Developer",
+    template: "%s | Renchin",
   },
   description:
-    "Dentsu Data Artist Mongol LLC (DDAM) delivers AI solution development, data engineering & analytics, PoC & R&D, and digital marketing as part of the Dentsu Group.",
+    "Portfolio of Renchin — a full-stack developer from Ulaanbaatar building fast, expressive web products with React, Node.js, and Three.js.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -31,12 +32,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-ink text-paper">
+        <SplashScreen />
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />
         {/* scroll progress bar + site-wide scroll reveals */}
         <ScrollFX />
-        {/* alche-style CRT texture over everything */}
+        {/* CRT texture over everything */}
         <div className="scanlines-fixed" aria-hidden />
       </body>
     </html>
