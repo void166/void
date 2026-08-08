@@ -32,18 +32,41 @@ function buildPanels(): Panel[] {
       glowA: "#2a0b52",
       glowB: "#0b0322",
       content: (
-        <div className="max-w-3xl">
-          <h2 className="display-title text-4xl sm:text-6xl" data-no-split>
-            Hi, I&apos;m {profile.name}.
-          </h2>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-mist sm:text-lg">{profile.bio}</p>
-          <div className="mt-10 grid grid-cols-3 gap-px border border-white/15 bg-white/15">
-            {profile.stats.map((s) => (
-              <div key={s.label} className="bg-black/40 p-5 backdrop-blur-sm">
-                <div className="text-3xl font-black" style={{ color: "var(--panel-accent)" }}>
-                  {s.value}
+        <div className="grid w-full max-w-5xl grid-cols-1 gap-10 lg:grid-cols-[1.2fr_1fr] lg:items-start">
+          <div>
+            <h2 className="display-title text-4xl sm:text-6xl" data-no-split>
+              Hi, I&apos;m {profile.name}.
+            </h2>
+            <div className="mt-4 font-mono text-xs uppercase tracking-[0.2em] text-mist">
+              {profile.fullName}
+            </div>
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-mist sm:text-lg">{profile.bio}</p>
+            <div className="mt-10 grid grid-cols-3 gap-px border border-white/15 bg-white/15">
+              {profile.stats.map((s) => (
+                <div key={s.label} className="bg-black/40 p-5 backdrop-blur-sm">
+                  <div className="text-3xl font-black" style={{ color: "var(--panel-accent)" }}>
+                    {s.value}
+                  </div>
+                  <div className="eyebrow mt-2 text-mist">{s.label}</div>
                 </div>
-                <div className="eyebrow mt-2 text-mist">{s.label}</div>
+              ))}
+            </div>
+          </div>
+
+          {/* current status card */}
+          <div className="border border-white/15 bg-black/40 backdrop-blur-sm">
+            {[
+              { k: "Currently", v: profile.work.role, sub: `${profile.work.company} · ${profile.work.since}` },
+              { k: "Education", v: profile.education.degree, sub: `${profile.education.school} · ${profile.education.years}` },
+              { k: "Base", v: profile.location, sub: "Working across time zones" },
+              { k: "Email", v: profile.email, sub: "Always open to interesting problems" },
+            ].map((row) => (
+              <div key={row.k} className="border-b border-white/10 p-5 last:border-0">
+                <div className="eyebrow" style={{ color: "var(--panel-accent)" }}>
+                  {row.k}
+                </div>
+                <div className="mt-1.5 font-bold text-paper">{row.v}</div>
+                <div className="mt-0.5 font-mono text-[11px] tracking-[0.05em] text-mist">{row.sub}</div>
               </div>
             ))}
           </div>

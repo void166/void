@@ -406,7 +406,7 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   d2.position.set(1.75, -0.85, -0.55);
   d2.rotation.z = 0.5;
   monogram.add(d1, d2);
-  monogram.rotation.set(0.1, 0.32, -0.05);
+  monogram.rotation.set(0, 0.32, 0); // upright — yaw only
   monogram.position.x = -0.1;
   scene.add(monogram);
 
@@ -435,7 +435,7 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       const fit = Math.min(
-        3.7 / Math.max(size.y, 0.001),
+        5.5 / Math.max(size.y, 0.001),
         5.2 / Math.max(size.x, 0.001),
         5.2 / Math.max(size.z, 0.001)
       );
@@ -561,15 +561,15 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     if (drag.active) {
       const now = performance.now();
       const dtm = Math.max(8, now - drag.lastT) / 1000;
+      /* turntable: drag only spins left / right, never tips */
       const yawD = ((e.clientX - drag.lastX) / rect.width) * DRAG_SENS;
-      const pitchD = ((e.clientY - drag.lastY) / rect.height) * DRAG_SENS * 0.85;
 
-      workEuler.set(pitchD, yawD, 0, "XYZ");
+      workEuler.set(0, yawD, 0, "XYZ");
       deltaQuat.setFromEuler(workEuler);
       spinQuat.premultiply(deltaQuat);
 
       drag.velYaw = THREE.MathUtils.clamp(THREE.MathUtils.lerp(drag.velYaw, yawD / dtm, 0.5), -6, 6);
-      drag.velPitch = THREE.MathUtils.clamp(THREE.MathUtils.lerp(drag.velPitch, pitchD / dtm, 0.5), -6, 6);
+      drag.velPitch = 0;
       drag.lastX = e.clientX;
       drag.lastY = e.clientY;
       drag.lastT = now;
@@ -653,25 +653,23 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     smoothedPointer.x += (pointer.x - smoothedPointer.x) * 0.05;
     smoothedPointer.y += (pointer.y - smoothedPointer.y) * 0.05;
 
-    // hover tilt is garnish only — it eases out entirely while the hand is on the object
+    // hover lean is yaw-only now — the figure never tips forward/back
     const hoverScale = drag.active ? 0 : 1;
-    const targetTiltX = -pointer.y * CONFIG.maxTiltRad * hoverScale;
+    const targetTiltX = 0;
     const targetTiltY = pointer.x * CONFIG.maxTiltRad * hoverScale;
     tilt.vx += ((targetTiltX - tilt.x) * CONFIG.tiltStiffness - tilt.vx * CONFIG.tiltDamping) * dt;
     tilt.vy += ((targetTiltY - tilt.y) * CONFIG.tiltStiffness - tilt.vy * CONFIG.tiltDamping) * dt;
     tilt.x += tilt.vx * dt;
     tilt.y += tilt.vy * dt;
 
-    // released momentum carries the spin, decaying like a heavy flywheel
+    // released momentum carries the spin (yaw only), decaying like a flywheel
     if (!drag.active) {
-      const momentum = Math.abs(drag.velYaw) + Math.abs(drag.velPitch);
+      const momentum = Math.abs(drag.velYaw);
       if (momentum > 0.002) {
-        workEuler.set(drag.velPitch * dt, drag.velYaw * dt, 0, "XYZ");
+        workEuler.set(0, drag.velYaw * dt, 0, "XYZ");
         deltaQuat.setFromEuler(workEuler);
         spinQuat.premultiply(deltaQuat);
-        const decay = Math.exp(-2.1 * dt);
-        drag.velYaw *= decay;
-        drag.velPitch *= decay;
+        drag.velYaw *= Math.exp(-2.1 * dt);
       } else {
         workEuler.set(0, 0.055 * dt * idleFade, 0, "XYZ");
         deltaQuat.setFromEuler(workEuler);
@@ -681,23 +679,20 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
 
     const activity = Math.min(1, (Math.abs(pointer.x) + Math.abs(pointer.y)) * 1.6);
     idleFade += (1 - activity - idleFade) * 0.02;
-    const idlePitch = Math.sin(t * 0.21) * 0.03 * idleFade;
 
-    const roll = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.4) * 0.04, -0.06, 0.06);
-
-    workEuler.set(tilt.x + idlePitch, tilt.y, roll, "XYZ");
+    workEuler.set(0, tilt.y, 0, "XYZ");
     hoverQuat.setFromEuler(workEuler);
     finalQuat.copy(spinQuat).premultiply(hoverQuat);
 
-    /* scroll drives an extra cinematic rotation on top of the user's spin */
+    /* scroll adds extra spin — still yaw-only so the figure stays upright */
     smoothScrollP += (scrollP - smoothScrollP) * 0.08;
-    scrollEuler.set(smoothScrollP * 0.5, smoothScrollP * 2.1, smoothScrollP * 0.25, "XYZ");
+    scrollEuler.set(0, smoothScrollP * 2.1, 0, "XYZ");
     scrollQuat.setFromEuler(scrollEuler);
     finalQuat.premultiply(scrollQuat);
     monogram.quaternion.copy(finalQuat);
 
-    // back letter trails a breath behind the front — layered inertia
-    d2.rotation.x = THREE.MathUtils.clamp(-(tilt.vx + drag.velPitch * 0.5) * 0.045, -0.09, 0.09);
+    // shard trails a breath behind — yaw only
+    d2.rotation.x = 0;
     d2.rotation.y = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.5) * 0.045, -0.09, 0.09);
 
     monogram.position.y =

@@ -77,7 +77,7 @@ export default function Footer() {
       <div className="border-t border-line">
         <div className="container-page flex flex-col gap-3 py-6 font-mono text-[11px] tracking-[0.08em] text-fog sm:flex-row sm:items-center sm:justify-between">
           <p>
-            &copy; {year} {profile.name}. Built with Next.js, Three.js &amp; too much coffee.
+            &copy; {year} {profile.fullName}. Built with Next.js, Three.js &amp; too much coffee.
           </p>
           <div className="flex gap-5">
             {legalNav.map((item) => (
