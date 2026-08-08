@@ -15,6 +15,8 @@ export type CrystalHeroApi = {
   setRoughness: (v: number) => void;
   setNoiseScale: (v: number) => void;
   setTint: (hex: string) => void;
+  /** 0..1 — how far the hero has scrolled out of view; drives camera pull, spin & bg dim */
+  setScroll: (p: number) => void;
 };
 
 const CONFIG = {
@@ -48,6 +50,8 @@ const BG_VERT = /* glsl */ `
 const BG_FRAG = /* glsl */ `
   precision highp float;
   uniform float uTime;
+  uniform float uScroll;
+  uniform vec3  uAccent;
   uniform vec2  uRes;
 
   float hash(vec2 p){
@@ -86,8 +90,8 @@ const BG_FRAG = /* glsl */ `
     vec2 c2 = p - vec2( 0.52,-0.25);
     float a1 = atan(c1.y, c1.x), r1 = length(c1);
     float a2 = atan(c2.y, c2.x), r2 = length(c2);
-    float sw1 = sin(a1*4.0 + r1*13.0 - t*0.12);
-    float sw2 = sin(a2*5.0 - r2*15.0 + t*0.09);
+    float sw1 = sin(a1*4.0 + r1*13.0 - t*0.12 + uScroll*2.4);
+    float sw2 = sin(a2*5.0 - r2*15.0 + t*0.09 - uScroll*1.8);
     float blendMask = smoothstep(-0.3, 0.3, sin(p.x*1.3 + p.y*0.9 + t*0.05));
     float field = mix(sw1, sw2, blendMask);
     float zebra = smoothstep(-0.08, 0.08, field);
@@ -101,6 +105,8 @@ const BG_FRAG = /* glsl */ `
     float flickStep = floor(t*3.0);
     float fl = hash(cell + flickStep*0.013);
     float tileLum = step(0.95, fl) * 0.05 + step(0.99, fl) * 0.14;
+    /* rare tiles flash in the accent color */
+    float accentTile = step(0.996, hash(cell + flickStep*0.029 + 7.7));
     float lineSum = (step(cuv.x, 0.035) + step(1.0-0.035, cuv.x)
                    + step(cuv.y, 0.035) + step(1.0-0.035, cuv.y));
     float gridLines = clamp(lineSum, 0.0, 1.0) * 0.045;
@@ -116,6 +122,7 @@ const BG_FRAG = /* glsl */ `
     vec3 col = vec3(0.010);
     col += vec3(0.105) * stripes;
     col += vec3(1.0) * tileLum;
+    col += uAccent * accentTile * 0.30;
     col += vec3(1.0) * gridLines;
     col += vec3(1.0) * triMark * 0.7;
 
@@ -123,7 +130,10 @@ const BG_FRAG = /* glsl */ `
     col += (hash(frag + fract(t)*111.0) - 0.5) * 0.035;
 
     /* subtle centre glow so the glass has something to catch */
-    col += vec3(0.03) * smoothstep(0.9, 0.0, length(p));
+    col += mix(vec3(0.03), uAccent * 0.05, 0.4) * smoothstep(0.9, 0.0, length(p));
+
+    /* dim as the hero scrolls away */
+    col *= 1.0 - uScroll * 0.55;
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -311,6 +321,8 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
 
   const bgUniforms = {
     uTime: { value: 0 },
+    uScroll: { value: 0 },
+    uAccent: { value: new THREE.Color(0x59e3ff) },
     uRes: { value: new THREE.Vector2(2, 2) },
   };
   const bgMat = new THREE.ShaderMaterial({
@@ -401,6 +413,12 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   const hoverQuat = new THREE.Quaternion();
   const deltaQuat = new THREE.Quaternion();
   const finalQuat = new THREE.Quaternion();
+
+  /* --- scroll state (0 = hero fully in view, 1 = scrolled past) --- */
+  let scrollP = 0;
+  let smoothScrollP = 0;
+  const scrollQuat = new THREE.Quaternion();
+  const scrollEuler = new THREE.Euler();
 
   /* --- pointer state --- */
   const pointer = { x: 0, y: 0 };
@@ -562,17 +580,29 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     workEuler.set(tilt.x + idlePitch, tilt.y, roll, "XYZ");
     hoverQuat.setFromEuler(workEuler);
     finalQuat.copy(spinQuat).premultiply(hoverQuat);
+
+    /* scroll drives an extra cinematic rotation on top of the user's spin */
+    smoothScrollP += (scrollP - smoothScrollP) * 0.08;
+    scrollEuler.set(smoothScrollP * 0.5, smoothScrollP * 2.1, smoothScrollP * 0.25, "XYZ");
+    scrollQuat.setFromEuler(scrollEuler);
+    finalQuat.premultiply(scrollQuat);
     monogram.quaternion.copy(finalQuat);
 
     // back letter trails a breath behind the front — layered inertia
     d2.rotation.x = THREE.MathUtils.clamp(-(tilt.vx + drag.velPitch * 0.5) * 0.045, -0.09, 0.09);
     d2.rotation.y = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.5) * 0.045, -0.09, 0.09);
 
-    monogram.position.y = 0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude;
+    monogram.position.y =
+      0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude + smoothScrollP * 0.9;
 
     camera.position.x = baseCameraPos.x + smoothedPointer.x * CONFIG.parallax;
     camera.position.y = baseCameraPos.y - smoothedPointer.y * CONFIG.parallax;
+    camera.position.z = baseCameraPos.z + smoothScrollP * 2.4;
     camera.lookAt(lookTarget);
+
+    /* wordmark parallax — the giant type climbs faster than the glass */
+    textMesh.position.y = 0.02 + smoothScrollP * 0.6;
+    bgUniforms.uScroll.value = smoothScrollP;
 
     if (handles.quatText) {
       const q = monogram.quaternion;
@@ -628,6 +658,10 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     glassUniforms.uTint.value.set(hex);
   }
 
+  function setScroll(p: number) {
+    scrollP = THREE.MathUtils.clamp(p, 0, 1);
+  }
+
   function dispose() {
     cancelAnimationFrame(rafId);
     timer.dispose();
@@ -655,5 +689,5 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     }
   }
 
-  return { dispose, resetOrientation, setRoughness, setNoiseScale, setTint };
+  return { dispose, resetOrientation, setRoughness, setNoiseScale, setTint, setScroll };
 }

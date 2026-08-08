@@ -18,7 +18,7 @@ export default function NewsCard({ item }: { item: NewsItem }) {
         {item.title}
       </h3>
       <p className="mt-2 text-sm leading-relaxed text-mist">{item.excerpt}</p>
-      <span className="mt-auto pt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-fog transition-colors group-hover:text-paper">
+      <span className="mt-auto pt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-fog transition-colors group-hover:text-accent">
         Read &rarr;
       </span>
     </article>

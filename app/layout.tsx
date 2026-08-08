@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ScrollFX from "@/components/ScrollFX";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,6 +34,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />
+        {/* scroll progress bar + site-wide scroll reveals */}
+        <ScrollFX />
         {/* alche-style CRT texture over everything */}
         <div className="scanlines-fixed" aria-hidden />
       </body>

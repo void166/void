@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { createCrystalHero, type CrystalHeroApi } from "@/lib/three/crystalHero";
 
 export default function CrystalHero() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const hudRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const quatTextRef = useRef<HTMLDivElement | null>(null);
   const gizmoRef = useRef<HTMLDivElement | null>(null);
@@ -33,7 +37,29 @@ export default function CrystalHero() {
       queueMicrotask(() => setFailed(true));
     }
 
+    /* scroll-linked: 3D scene reacts + HUD fades as the hero leaves the viewport */
+    let st: ScrollTrigger | undefined;
+    const root = rootRef.current;
+    if (root && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      gsap.registerPlugin(ScrollTrigger);
+      st = ScrollTrigger.create({
+        trigger: root,
+        start: "top top",
+        end: "bottom top",
+        scrub: 0.4,
+        onUpdate: (self) => {
+          apiRef.current?.setScroll(self.progress);
+          if (hudRef.current) {
+            gsap.set(hudRef.current, {
+              opacity: Math.max(0, 1 - self.progress * 1.6),
+            });
+          }
+        },
+      });
+    }
+
     return () => {
+      st?.kill();
       apiRef.current?.dispose();
       apiRef.current = null;
     };
@@ -53,7 +79,7 @@ export default function CrystalHero() {
   })();
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#050505]">
+    <div ref={rootRef} className="relative h-full w-full overflow-hidden bg-[#050505]">
       <div ref={containerRef} className="absolute inset-0" />
 
       {/* CRT scanlines over the whole stage */}
@@ -69,6 +95,9 @@ export default function CrystalHero() {
           background: "radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,.5) 100%)",
         }}
       />
+
+      {/* HUD group — fades out as the hero scrolls away */}
+      <div ref={hudRef} className="pointer-events-none absolute inset-0">
 
       {/* static center guides — faint stage alignment */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
@@ -98,7 +127,7 @@ export default function CrystalHero() {
         ))}
       </div>
 
-      <div className="absolute right-6 top-6 text-right">
+      <div className="pointer-events-auto absolute right-6 top-6 text-right">
         <div className="eyebrow pointer-events-none text-white/30">MainLogo Quaternion</div>
         <div ref={quatTextRef} className="pointer-events-none mt-1 font-mono text-[11px] text-white/40">
           0.00 0.00 0.00 1.00
@@ -109,9 +138,9 @@ export default function CrystalHero() {
           style={{ transformStyle: "preserve-3d" }}
         >
           <div className="relative h-full w-full">
-            <span className="absolute left-1/2 top-1/2 h-px w-5 -translate-y-1/2 bg-red-400/60" />
-            <span className="absolute left-1/2 top-1/2 h-5 w-px -translate-x-1/2 bg-emerald-400/60" />
-            <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-300/70" />
+            <span className="absolute left-1/2 top-1/2 h-px w-5 -translate-y-1/2 bg-white/40" />
+            <span className="absolute left-1/2 top-1/2 h-5 w-px -translate-x-1/2 bg-white/40" />
+            <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_8px_rgba(89,227,255,0.8)]" />
           </div>
         </div>
         <button
@@ -124,7 +153,7 @@ export default function CrystalHero() {
       </div>
 
       {/* MainLogo Material — live debug panel, alche-style */}
-      <div className="absolute bottom-6 left-6 w-64 select-none">
+      <div className="pointer-events-auto absolute bottom-6 left-6 w-64 select-none">
         <div className="eyebrow pointer-events-none text-white/30">MainLogo Material</div>
         <div className="mt-3 flex items-center gap-3 font-mono text-[11px] text-white/40">
           <span className="w-20 shrink-0">roughness</span>
@@ -178,6 +207,9 @@ export default function CrystalHero() {
       <div className="eyebrow pointer-events-none absolute bottom-6 right-6 text-white/30">
         Drag to rotate
       </div>
+
+      </div>
+      {/* end HUD group */}
     </div>
   );
 }

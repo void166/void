@@ -1,5 +1,7 @@
 import Link from "next/link";
 import CrystalHero from "@/components/CrystalHero";
+import Marquee from "@/components/Marquee";
+import WorksShowcase from "@/components/WorksShowcase";
 import SectionHeading from "@/components/SectionHeading";
 import ServiceMatrix from "@/components/ServiceMatrix";
 import GlobalReachSection from "@/components/GlobalReachSection";
@@ -15,6 +17,10 @@ export default function Home() {
       <section className="relative h-[calc(100vh-69px)] min-h-[600px] w-full overflow-hidden bg-[#050505]">
         <CrystalHero />
       </section>
+
+      <Marquee />
+
+      <WorksShowcase />
 
       <section className="border-b border-line py-24">
         <div className="container-page">
@@ -71,7 +77,7 @@ export default function Home() {
                   <span className="text-base font-bold leading-snug text-paper underline-offset-4 group-hover:underline sm:text-lg">
                     {item.title}
                   </span>
-                  <span className="hidden font-mono text-xs text-fog transition-colors group-hover:text-paper sm:block">
+                  <span className="hidden font-mono text-xs text-fog transition-colors group-hover:text-accent sm:block">
                     &rarr;
                   </span>
                 </Link>
@@ -125,6 +131,8 @@ export default function Home() {
           </Reveal>
         </div>
       </section>
+
+      <Marquee items={["Ulaanbaatar", "Tokyo", "Dentsu Group", "50+ Specialists"]} />
     </>
   );
 }

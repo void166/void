@@ -15,6 +15,8 @@
   --color-brand-500: #e8e8e8;
   --color-brand-600: #a8a8a8;
   --color-brand-700: #777777;
+  /* the one cool color: electric ice cyan */
+  --color-accent: #59e3ff;
 }
 
 @theme inline {
@@ -31,6 +33,7 @@
   --color-brand-500: var(--color-brand-500);
   --color-brand-600: var(--color-brand-600);
   --color-brand-700: var(--color-brand-700);
+  --color-accent: var(--color-accent);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -68,7 +71,7 @@ body {
 }
 
 ::selection {
-  background: #ffffff;
+  background: var(--color-accent);
   color: #000000;
 }
 
@@ -133,7 +136,7 @@ body {
   transition: background 0.2s, transform 0.2s;
 }
 .btn-solid:hover {
-  background: #ffffff;
+  background: var(--color-accent);
   transform: translateY(-2px);
 }
 
@@ -171,4 +174,66 @@ body {
 .text-outline {
   color: transparent;
   -webkit-text-stroke: 1px rgba(255, 255, 255, 0.22);
+}
+
+/* accent-outlined display text (marquee) */
+.text-outline-accent {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(89, 227, 255, 0.55);
+}
+
+/* ---------- scroll animation system ---------- */
+
+/* thin scroll progress bar pinned to the very top */
+#scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 95;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.06);
+}
+#scroll-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--color-accent);
+  box-shadow: 0 0 12px rgba(89, 227, 255, 0.7);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+/* infinite marquee band */
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll 26s linear infinite;
+}
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+  #scroll-progress {
+    display: none;
+  }
+}
+
+/* char-split reveal: hide overflow per word while chars rise */
+.split-word {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+}
+.split-char {
+  display: inline-block;
+  will-change: transform;
 }
