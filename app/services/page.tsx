@@ -13,17 +13,20 @@ export const metadata: Metadata = {
 export default function ServicesPage() {
   return (
     <>
-      <section className="border-b border-line py-20">
+      <section className="border-b border-line py-24">
         <div className="container-page">
-          <div className="eyebrow animate-fade-up text-brand-400">Services</div>
+          <div className="eyebrow animate-fade-up flex items-center gap-3 text-mist">
+            <span className="inline-block h-px w-6 bg-line-strong" aria-hidden />
+            Services
+          </div>
           <h1
-            className="animate-fade-up mt-4 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl"
+            className="display-title animate-fade-up mt-6 max-w-3xl text-4xl sm:text-6xl"
             style={{ animationDelay: "80ms" }}
           >
             Four practices. One data-driven approach.
           </h1>
           <p
-            className="animate-fade-up mt-5 max-w-2xl text-base leading-relaxed text-mist sm:text-lg"
+            className="animate-fade-up mt-6 max-w-2xl text-base leading-relaxed text-mist sm:text-lg"
             style={{ animationDelay: "160ms" }}
           >
             From proof of concept to full-scale AI systems, data pipelines, and
@@ -32,30 +35,27 @@ export default function ServicesPage() {
         </div>
       </section>
 
-      <section className="py-20">
+      <section className="py-24">
         <div className="container-page">
           <Reveal>
             <SectionHeading eyebrow="What we do" title="Explore our services" />
           </Reveal>
-          <div className="mt-10">
+          <div className="mt-12">
             <ServiceMatrix />
           </div>
         </div>
       </section>
 
-      <section className="border-t border-line py-20">
+      <section className="border-t border-line py-24">
         <Reveal className="container-page">
-          <div className="flex flex-col items-start justify-between gap-6 rounded-2xl border border-line bg-ink-2 p-10 sm:flex-row sm:items-center">
+          <div className="flex flex-col items-start justify-between gap-6 border border-line p-10 sm:flex-row sm:items-center">
             <div>
-              <h2 className="text-2xl font-bold">Not sure where to start?</h2>
-              <p className="mt-2 max-w-lg text-sm leading-relaxed text-mist">
+              <h2 className="display-title text-2xl">Not sure where to start?</h2>
+              <p className="mt-3 max-w-lg text-sm leading-relaxed text-mist">
                 Tell us about your business problem and we&apos;ll recommend the right starting point — often a focused Proof of Concept.
               </p>
             </div>
-            <Link
-              href="/contact"
-              className="shrink-0 rounded-md bg-brand-500 px-6 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-400 hover:shadow-lg hover:shadow-brand-500/20"
-            >
+            <Link href="/contact" className="btn-solid shrink-0">
               Talk to us
             </Link>
           </div>

@@ -12,17 +12,20 @@ export const metadata: Metadata = {
 export default function ContactPage() {
   return (
     <>
-      <section className="border-b border-line py-20">
+      <section className="border-b border-line py-24">
         <div className="container-page">
-          <div className="eyebrow animate-fade-up text-brand-400">Contact</div>
+          <div className="eyebrow animate-fade-up flex items-center gap-3 text-mist">
+            <span className="inline-block h-px w-6 bg-line-strong" aria-hidden />
+            Contact
+          </div>
           <h1
-            className="animate-fade-up mt-4 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl"
+            className="display-title animate-fade-up mt-6 max-w-3xl text-4xl sm:text-6xl"
             style={{ animationDelay: "80ms" }}
           >
             Let&apos;s build something together.
           </h1>
           <p
-            className="animate-fade-up mt-5 max-w-2xl text-base leading-relaxed text-mist sm:text-lg"
+            className="animate-fade-up mt-6 max-w-2xl text-base leading-relaxed text-mist sm:text-lg"
             style={{ animationDelay: "160ms" }}
           >
             Have a project in mind, a partnership idea, or a question about working with us?
@@ -31,18 +34,24 @@ export default function ContactPage() {
         </div>
       </section>
 
-      <section className="py-20">
+      <section className="py-24">
         <div className="container-page grid grid-cols-1 gap-12 lg:grid-cols-[1fr_1.2fr]">
           <Reveal className="space-y-8">
             <div>
               <div className="eyebrow text-fog">Email</div>
-              <a href={`mailto:${contact.email}`} className="mt-2 block text-lg font-medium text-paper transition-colors hover:text-brand-300">
+              <a
+                href={`mailto:${contact.email}`}
+                className="mt-2 block font-mono text-lg text-paper underline-offset-4 transition-colors hover:underline"
+              >
                 {contact.email}
               </a>
             </div>
             <div>
               <div className="eyebrow text-fog">Phone</div>
-              <a href={contact.phoneHref} className="mt-2 block text-lg font-medium text-paper transition-colors hover:text-brand-300">
+              <a
+                href={contact.phoneHref}
+                className="mt-2 block font-mono text-lg text-paper underline-offset-4 transition-colors hover:underline"
+              >
                 {contact.phone}
               </a>
             </div>
@@ -55,13 +64,18 @@ export default function ContactPage() {
                   </span>
                 ))}
               </p>
-              <div className="mt-4 flex h-48 items-center justify-center rounded-xl border border-line bg-ink-2 text-xs text-fog">
+              <div className="card-line mt-4 flex h-48 items-center justify-center font-mono text-[11px] uppercase tracking-[0.16em] text-fog">
                 Map placeholder — Altan Joloo Tower, Ulaanbaatar
               </div>
             </div>
-            <div className="rounded-xl border border-line bg-ink-2 p-5 transition-colors duration-300 hover:border-line-strong">
-              <div className="text-sm font-semibold text-paper">Looking to join the team instead?</div>
-              <Link href="/careers" className="mt-2 inline-block text-sm font-medium text-brand-300 hover:text-brand-200">
+            <div className="card-line p-5">
+              <div className="text-sm font-bold uppercase tracking-wide text-paper">
+                Looking to join the team instead?
+              </div>
+              <Link
+                href="/careers"
+                className="mt-2 inline-block font-mono text-[11px] uppercase tracking-[0.18em] text-mist transition-colors hover:text-paper"
+              >
                 View open careers &rarr;
               </Link>
             </div>

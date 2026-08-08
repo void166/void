@@ -33,6 +33,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />
+        {/* alche-style CRT texture over everything */}
+        <div className="scanlines-fixed" aria-hidden />
       </body>
     </html>
   );

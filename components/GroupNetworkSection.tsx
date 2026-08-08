@@ -18,17 +18,22 @@ const network = [
 
 export default function GroupNetworkSection() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      {network.map((entry) => (
+    <div className="grid grid-cols-1 gap-px border border-line bg-line sm:grid-cols-3">
+      {network.map((entry, i) => (
         <a
           key={entry.name}
           href={entry.href}
           target={entry.href.startsWith("http") ? "_blank" : undefined}
           rel={entry.href.startsWith("http") ? "noopener noreferrer" : undefined}
-          className="flex flex-col rounded-2xl border border-line bg-ink-2 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-line-strong hover:bg-ink-3 hover:shadow-xl hover:shadow-black/30"
+          className="group flex flex-col bg-ink p-7 transition-colors duration-300 hover:bg-paper"
         >
-          <div className="text-base font-semibold text-paper">{entry.name}</div>
-          <p className="mt-2 text-sm leading-relaxed text-mist">{entry.description}</p>
+          <span className="font-mono text-xs tracking-[0.25em] text-fog group-hover:text-black/40">
+            {String(i + 1).padStart(2, "0")}
+          </span>
+          <div className="mt-5 text-base font-black uppercase tracking-wide text-paper group-hover:text-black">
+            {entry.name}
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-mist group-hover:text-black/60">{entry.description}</p>
         </a>
       ))}
     </div>

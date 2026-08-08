@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { services } from "@/lib/data/services";
 import { primaryNav } from "@/lib/nav";
-import LogoBadge from "./LogoBadge";
 
 export default function Header() {
   const pathname = usePathname();
@@ -20,17 +19,18 @@ export default function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-ink/85 backdrop-blur transition-shadow duration-300 supports-[backdrop-filter]:bg-ink/70">
+    <header className="sticky top-0 z-50 border-b border-line bg-ink/85 backdrop-blur supports-[backdrop-filter]:bg-ink/70">
       <div className="container-page flex items-center justify-between py-4">
-        <Link href="/" className="flex items-center gap-2.5 shrink-0">
-          <LogoBadge />
-          <span className="flex flex-col leading-none">
-            <span className="text-sm font-bold tracking-wide">DDAM</span>
-            <span className="text-[10px] tracking-wide text-fog">Dentsu Data Artist Mongol</span>
+        <Link href="/" className="group flex shrink-0 items-baseline gap-3">
+          <span className="text-lg font-black uppercase tracking-[0.28em] text-paper">
+            DDAM
+          </span>
+          <span className="hidden font-mono text-[9px] uppercase tracking-[0.22em] text-fog transition-colors group-hover:text-mist sm:inline">
+            Dentsu Data Artist Mongol
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="hidden items-center gap-8 lg:flex">
           <NavLink href="/" active={pathname === "/"}>
             Home
           </NavLink>
@@ -43,7 +43,7 @@ export default function Header() {
             <Link
               href="/services"
               onFocus={() => setServicesOpen(true)}
-              className={`flex items-center gap-1 rounded-md px-3 py-2 text-sm transition-colors ${
+              className={`flex items-center gap-1.5 font-mono text-[13px] tracking-[0.14em] transition-colors ${
                 pathname.startsWith("/services") ? "text-paper" : "text-mist hover:text-paper"
               }`}
               aria-expanded={servicesOpen}
@@ -55,23 +55,28 @@ export default function Header() {
             </Link>
 
             {servicesOpen && (
-              <div className="absolute left-1/2 top-full w-[36rem] -translate-x-1/2 pt-3">
-                <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-ink-2 p-3 shadow-2xl shadow-black/50">
-                  {services.map((service) => (
+              <div className="absolute left-1/2 top-full w-[36rem] -translate-x-1/2 pt-4">
+                <div className="grid grid-cols-2 border border-line-strong bg-ink shadow-2xl shadow-black/60">
+                  {services.map((service, i) => (
                     <Link
                       key={service.slug}
                       href={`/services/${service.slug}`}
-                      className="group rounded-lg p-3 transition-colors hover:bg-ink-3"
+                      className="group border border-line/50 p-4 transition-colors hover:bg-paper"
                     >
-                      <div className="text-sm font-semibold text-paper group-hover:text-brand-300">
+                      <div className="font-mono text-[10px] tracking-[0.2em] text-fog group-hover:text-black/50">
+                        {String(i + 1).padStart(2, "0")}
+                      </div>
+                      <div className="mt-1.5 text-sm font-bold uppercase tracking-wide text-paper group-hover:text-black">
                         {service.shortName}
                       </div>
-                      <div className="mt-1 text-xs leading-snug text-fog">{service.tagline}</div>
+                      <div className="mt-1 text-xs leading-snug text-fog group-hover:text-black/60">
+                        {service.tagline}
+                      </div>
                     </Link>
                   ))}
                   <Link
                     href="/services"
-                    className="col-span-2 mt-1 flex items-center justify-between rounded-lg border-t border-line px-3 pt-3 text-xs font-medium text-brand-300 hover:text-brand-200"
+                    className="col-span-2 flex items-center justify-between border-t border-line px-4 py-3 font-mono text-[11px] uppercase tracking-[0.18em] text-mist transition-colors hover:text-paper"
                   >
                     View all services
                     <span aria-hidden>&rarr;</span>
@@ -91,16 +96,16 @@ export default function Header() {
         <div className="hidden lg:block">
           <Link
             href="/contact"
-            className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-400"
+            className="rounded-full border border-line-strong px-5 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-white/10"
           >
-            Get in touch
+            Contact / Recruit
           </Link>
         </div>
 
         <button
           type="button"
           onClick={() => setMobileOpen((v) => !v)}
-          className="flex h-9 w-9 items-center justify-center rounded-md border border-line text-paper lg:hidden"
+          className="flex h-9 w-9 items-center justify-center border border-line text-paper lg:hidden"
           aria-label="Toggle menu"
           aria-expanded={mobileOpen}
         >
@@ -116,7 +121,7 @@ export default function Header() {
 
       {mobileOpen && (
         <div className="border-t border-line bg-ink lg:hidden">
-          <nav className="container-page flex flex-col gap-1 py-4">
+          <nav className="container-page flex flex-col py-4">
             <MobileLink href="/">Home</MobileLink>
             <div className="py-1">
               <div className="eyebrow px-3 py-2 text-fog">Services</div>
@@ -131,11 +136,8 @@ export default function Header() {
                 {item.label}
               </MobileLink>
             ))}
-            <Link
-              href="/contact"
-              className="mt-2 rounded-md bg-brand-500 px-4 py-3 text-center text-sm font-semibold text-white"
-            >
-              Get in touch
+            <Link href="/contact" className="btn-solid mt-3 text-center">
+              Contact / Recruit
             </Link>
           </nav>
         </div>
@@ -148,7 +150,9 @@ function NavLink({ href, active, children }: { href: string; active: boolean; ch
   return (
     <Link
       href={href}
-      className={`rounded-md px-3 py-2 text-sm transition-colors ${active ? "text-paper" : "text-mist hover:text-paper"}`}
+      className={`font-mono text-[13px] tracking-[0.14em] transition-colors ${
+        active ? "text-paper" : "text-mist hover:text-paper"
+      }`}
     >
       {children}
     </Link>
@@ -159,7 +163,7 @@ function MobileLink({ href, children, indent }: { href: string; children: React.
   return (
     <Link
       href={href}
-      className={`block rounded-md py-2.5 text-sm text-paper hover:text-brand-300 ${indent ? "pl-6" : "px-3"}`}
+      className={`block py-2.5 font-mono text-sm tracking-[0.1em] text-paper hover:text-white ${indent ? "pl-6" : "px-3"}`}
     >
       {children}
     </Link>

@@ -9,9 +9,9 @@ export default function CVUploadForm() {
 
   if (submitted) {
     return (
-      <div className="rounded-2xl border border-line bg-ink-2 p-10 text-center">
-        <h3 className="text-xl font-semibold text-paper">Thanks for applying!</h3>
-        <p className="mt-2 text-sm leading-relaxed text-mist">
+      <div className="card-line p-10 text-center">
+        <h3 className="display-title text-xl text-paper">Thanks for applying!</h3>
+        <p className="mt-3 text-sm leading-relaxed text-mist">
           We&apos;ve received your information and will be in touch if there&apos;s a match.
         </p>
       </div>
@@ -20,7 +20,7 @@ export default function CVUploadForm() {
 
   return (
     <form
-      className="grid grid-cols-1 gap-5 rounded-2xl border border-line bg-ink-2 p-8 sm:grid-cols-2"
+      className="grid grid-cols-1 gap-5 border border-line p-8 sm:grid-cols-2"
       onSubmit={(e) => {
         e.preventDefault();
         setSubmitted(true);
@@ -55,7 +55,7 @@ export default function CVUploadForm() {
           name="cv"
           type="file"
           accept=".pdf,.doc,.docx"
-          className={`${inputClass} file:mr-3 file:rounded-md file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white`}
+          className={`${inputClass} file:mr-3 file:border-0 file:bg-paper file:px-3 file:py-1.5 file:font-mono file:text-[10px] file:font-semibold file:uppercase file:tracking-[0.15em] file:text-black`}
         />
       </Field>
 
@@ -64,10 +64,7 @@ export default function CVUploadForm() {
       </Field>
 
       <div className="sm:col-span-2">
-        <button
-          type="submit"
-          className="rounded-md bg-brand-500 px-6 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-400 hover:shadow-lg hover:shadow-brand-500/20"
-        >
+        <button type="submit" className="btn-solid cursor-pointer">
           Send
         </button>
       </div>
@@ -76,7 +73,7 @@ export default function CVUploadForm() {
 }
 
 const inputClass =
-  "w-full rounded-md border border-line-strong bg-ink px-3.5 py-2.5 text-sm text-paper outline-none transition-colors focus:border-brand-400 focus:ring-2 focus:ring-brand-500/40";
+  "w-full border border-line bg-transparent px-3.5 py-2.5 font-mono text-sm text-paper outline-none transition-colors focus:border-line-strong focus:bg-white/[0.03]";
 
 function Field({
   label,
@@ -91,7 +88,7 @@ function Field({
 }) {
   return (
     <div className={full ? "sm:col-span-2" : undefined}>
-      <label htmlFor={htmlFor} className="mb-1.5 block text-xs font-medium text-mist">
+      <label htmlFor={htmlFor} className="mb-2 block font-mono text-[10px] uppercase tracking-[0.22em] text-fog">
         {label}
       </label>
       {children}

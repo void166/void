@@ -1,19 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --color-ink: #05060a;
-  --color-ink-2: #0b0d13;
-  --color-ink-3: #12141c;
-  --color-line: rgba(255, 255, 255, 0.08);
-  --color-line-strong: rgba(255, 255, 255, 0.16);
-  --color-paper: #f3f4f7;
-  --color-mist: #9aa1ac;
-  --color-fog: #676e79;
-  --color-brand-300: #9db8ff;
-  --color-brand-400: #6e97ff;
-  --color-brand-500: #3e7bfa;
-  --color-brand-600: #2a5fe0;
-  --color-brand-700: #1d47ad;
+  --color-ink: #050505;
+  --color-ink-2: #0a0a0a;
+  --color-ink-3: #111111;
+  --color-line: rgba(255, 255, 255, 0.1);
+  --color-line-strong: rgba(255, 255, 255, 0.22);
+  --color-paper: #f2f2f2;
+  --color-mist: #9a9a9a;
+  --color-fog: #666666;
+  /* monochrome "brand" — the accent is white light itself */
+  --color-brand-300: #ffffff;
+  --color-brand-400: #d9d9d9;
+  --color-brand-500: #e8e8e8;
+  --color-brand-600: #a8a8a8;
+  --color-brand-700: #777777;
 }
 
 @theme inline {
@@ -67,8 +68,8 @@ body {
 }
 
 ::selection {
-  background: var(--color-brand-500);
-  color: white;
+  background: #ffffff;
+  color: #000000;
 }
 
 .container-page {
@@ -92,7 +93,82 @@ body {
 
 .eyebrow {
   font-family: var(--font-mono), monospace;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+}
+
+/* ---------- alche-style system ---------- */
+
+/* fixed CRT scanlines + vignette over every page */
+.scanlines-fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.11) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+  opacity: 0.45;
+}
+
+/* big display headings */
+.display-title {
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  line-height: 0.98;
+}
+
+/* solid button: white block, black mono text */
+.btn-solid {
+  display: inline-block;
+  background: var(--color-paper);
+  color: #000;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  padding: 0.85rem 1.6rem;
+  transition: background 0.2s, transform 0.2s;
+}
+.btn-solid:hover {
+  background: #ffffff;
+  transform: translateY(-2px);
+}
+
+/* ghost button: hairline border */
+.btn-ghost {
+  display: inline-block;
+  border: 1px solid var(--color-line-strong);
+  color: var(--color-paper);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  padding: 0.85rem 1.6rem;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+}
+.btn-ghost:hover {
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-2px);
+}
+
+/* square hairline card */
+.card-line {
+  border: 1px solid var(--color-line);
+  background: transparent;
+  transition: border-color 0.3s, background 0.3s;
+}
+.card-line:hover {
+  border-color: var(--color-line-strong);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* outline display text (footer wordmark) */
+.text-outline {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.22);
 }
