@@ -15,6 +15,9 @@ import gsap from "gsap";
 export type CrystalHeroHandles = {
   quatText?: HTMLElement | null;
   gizmoGroup?: HTMLElement | null;
+  crosshairV?: HTMLElement | null;
+  crosshairH?: HTMLElement | null;
+  coordText?: HTMLElement | null;
 };
 
 export type CrystalHeroApi = {
@@ -26,8 +29,6 @@ const CONFIG = {
   cameraFov: 34,
   cameraZ: 7.4,
   ior: 1.55,
-  thickness: 3.2,
-  roughness: 0.24,
   letterHeight: 3.1,
   letterWidth: 2.35,
   letterBar: 0.78,
@@ -35,15 +36,25 @@ const CONFIG = {
   letterGap: 1.45,
   wallRadius: 12,
   wallHeight: 10,
-  maxTiltRad: THREE.MathUtils.degToRad(18),
-  slerpSpeed: 0.055,
-  idleYawSpeed: 0.045,
-  bobAmplitude: 0.14,
-  bobSpeed: 0.55,
-  breatheAmplitude: 0.01,
-  breatheSpeed: 0.7,
-  parallax: 0.26,
+  floorY: -2.5,
+  maxTiltRad: THREE.MathUtils.degToRad(12),
+  // damped spring for mouse tilt — heavy, physical, settles without wobble
+  tiltStiffness: 60,
+  tiltDamping: 12,
+  bobAmplitude: 0.1,
+  bobSpeed: 0.5,
+  parallax: 0.15,
   wordmarkLines: ["DENTSU DATA", "ARTIST MONGOL"],
+  // LED show — hues cycled by the wall, lights, and glass tint
+  ledPalette: [
+    { h: 212, s: 0.95, l: 0.5 }, // blue
+    { h: 186, s: 0.95, l: 0.45 }, // cyan
+    { h: 264, s: 0.9, l: 0.55 }, // violet
+    { h: 316, s: 0.9, l: 0.5 }, // magenta
+    { h: 162, s: 0.9, l: 0.45 }, // teal
+  ],
+  ledSwitchInterval: 3.4,
+  ledLerpSpeed: 0.025,
 };
 
 function mulberry32(seed: number) {
@@ -57,40 +68,30 @@ function mulberry32(seed: number) {
   };
 }
 
-function buildWallTexture(): HTMLCanvasElement {
+/** Static base structure of the LED wall: dark tiles + fine grid. */
+function buildWallBaseTexture(): HTMLCanvasElement {
   const size = 1024;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
 
-  ctx.fillStyle = "#04070a";
+  ctx.fillStyle = "#04060a";
   ctx.fillRect(0, 0, size, size);
 
   const cols = 10;
   const rows = 10;
   const cell = size / cols;
-  const rand = mulberry32(42);
+  const rand = mulberry32(7);
 
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const px = x * cell;
       const py = y * cell;
-      const glow = rand() > 0.88;
-      const shade = 5 + Math.floor(rand() * 9);
-
-      ctx.fillStyle = glow ? "rgba(50,140,220,0.30)" : `rgb(${shade},${shade + 2},${shade + 4})`;
+      const shade = 5 + Math.floor(rand() * 8);
+      ctx.fillStyle = `rgb(${shade},${shade + 1},${shade + 3})`;
       ctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
 
-      if (glow) {
-        const grad = ctx.createRadialGradient(px + cell / 2, py + cell / 2, 0, px + cell / 2, py + cell / 2, cell * 0.75);
-        grad.addColorStop(0, "rgba(80,170,255,0.5)");
-        grad.addColorStop(1, "rgba(80,170,255,0)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(px - cell, py - cell, cell * 3, cell * 3);
-      }
-
-      // fine inner grid
       ctx.strokeStyle = "rgba(255,255,255,0.035)";
       ctx.lineWidth = 0.5;
       const sub = cell / 5;
@@ -105,11 +106,10 @@ function buildWallTexture(): HTMLCanvasElement {
         ctx.stroke();
       }
 
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.strokeStyle = "rgba(255,255,255,0.09)";
       ctx.lineWidth = 1.2;
       ctx.strokeRect(px, py, cell, cell);
 
-      // faint watermark triangle
       if (rand() > 0.62) {
         ctx.strokeStyle = "rgba(255,255,255,0.05)";
         ctx.beginPath();
@@ -128,6 +128,47 @@ function buildWallTexture(): HTMLCanvasElement {
   return canvas;
 }
 
+/**
+ * Glow pattern for the LED wall, drawn in WHITE on black.
+ * Hue comes from wallMat.emissive (lerped each frame), so color
+ * transitions stay perfectly smooth while the lit-tile pattern jumps
+ * like a real LED show.
+ */
+function paintGlowPattern(ctx: CanvasRenderingContext2D, size: number, seed: number) {
+  const cols = 10;
+  const rows = 10;
+  const cell = size / cols;
+  const rand = mulberry32(seed);
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, size, size);
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (rand() <= 0.86) continue;
+      const px = x * cell;
+      const py = y * cell;
+
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
+
+      const grad = ctx.createRadialGradient(
+        px + cell / 2,
+        py + cell / 2,
+        0,
+        px + cell / 2,
+        py + cell / 2,
+        cell * 0.9
+      );
+      grad.addColorStop(0, "rgba(255,255,255,0.6)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(px - cell, py - cell, cell * 3, cell * 3);
+    }
+  }
+}
+
 function buildNoiseNormalMap(): HTMLCanvasElement {
   const size = 256;
   const canvas = document.createElement("canvas");
@@ -142,6 +183,36 @@ function buildNoiseNormalMap(): HTMLCanvasElement {
     imageData.data[i + 3] = 255;
   }
   ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/** Blotchy roughness map — smudged frost patches over clearer glass, like hand-finished crystal. */
+function buildFrostRoughnessMap(): HTMLCanvasElement {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+
+  // base: already hazy — this glass is never clear
+  ctx.fillStyle = "rgb(92,92,92)";
+  ctx.fillRect(0, 0, size, size);
+
+  const rand = mulberry32(99);
+  ctx.filter = "blur(26px)";
+  for (let i = 0; i < 34; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const rx = 30 + rand() * 120;
+    const ry = 20 + rand() * 90;
+    const v = 145 + Math.floor(rand() * 75);
+    ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.filter = "none";
+
   return canvas;
 }
 
@@ -178,7 +249,23 @@ function buildWordmarkTexture(lines: string[]): HTMLCanvasElement {
   return canvas;
 }
 
-/** Build a "D" letterform as an extrudable shape: flat left bar, semicircular right bowl, counter hole. */
+/** Soft elliptical contact shadow under the monogram. */
+function buildContactShadowTexture(): HTMLCanvasElement {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, "rgba(0,0,0,0.85)");
+  grad.addColorStop(0.55, "rgba(0,0,0,0.4)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return canvas;
+}
+
+/** "D" letterform: flat left bar, semicircular right bowl, counter hole. */
 function buildDShape(width: number, height: number, bar: number): THREE.Shape {
   const radius = height / 2;
   const bowlX = width - radius;
@@ -204,11 +291,12 @@ function buildDShape(width: number, height: number, bar: number): THREE.Shape {
 
 export function createCrystalHero(container: HTMLDivElement, handles: CrystalHeroHandles = {}): CrystalHeroApi {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x02040a, 0.038);
+  scene.fog = new THREE.FogExp2(0x02040a, 0.034);
 
   const camera = new THREE.PerspectiveCamera(CONFIG.cameraFov, 1, 0.1, 100);
-  camera.position.set(0, 0, CONFIG.cameraZ);
+  camera.position.set(0, 0.65, CONFIG.cameraZ);
   const baseCameraPos = camera.position.clone();
+  const lookTarget = new THREE.Vector3(0, -0.1, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setClearColor(0x050505, 1);
@@ -222,7 +310,7 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   const envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = envTexture;
 
-  // --- curved background wall ---
+  // --- curved LED wall (theater screen wrapping the stage) ---
   const wallGeo = new THREE.CylinderGeometry(
     CONFIG.wallRadius,
     CONFIG.wallRadius,
@@ -233,23 +321,63 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     Math.PI * 0.65,
     Math.PI * 1.7
   );
-  const wallTexture = new THREE.CanvasTexture(buildWallTexture());
-  wallTexture.colorSpace = THREE.SRGBColorSpace;
-  wallTexture.wrapS = THREE.RepeatWrapping;
-  wallTexture.wrapT = THREE.RepeatWrapping;
-  wallTexture.repeat.set(6, 3);
+  const wallBaseTexture = new THREE.CanvasTexture(buildWallBaseTexture());
+  wallBaseTexture.colorSpace = THREE.SRGBColorSpace;
+  wallBaseTexture.wrapS = THREE.RepeatWrapping;
+  wallBaseTexture.wrapT = THREE.RepeatWrapping;
+  wallBaseTexture.repeat.set(6, 3);
+
+  const glowCanvas = document.createElement("canvas");
+  glowCanvas.width = 1024;
+  glowCanvas.height = 1024;
+  const glowCtx = glowCanvas.getContext("2d")!;
+  let glowSeed = 1;
+  paintGlowPattern(glowCtx, 1024, glowSeed);
+  const glowTexture = new THREE.CanvasTexture(glowCanvas);
+  glowTexture.wrapS = THREE.RepeatWrapping;
+  glowTexture.wrapT = THREE.RepeatWrapping;
+  glowTexture.repeat.set(6, 3);
+
   const wallMat = new THREE.MeshStandardMaterial({
-    map: wallTexture,
+    map: wallBaseTexture,
     side: THREE.BackSide,
     roughness: 0.85,
     metalness: 0.15,
-    emissive: new THREE.Color(0x14335c),
-    emissiveMap: wallTexture,
-    emissiveIntensity: 0.55,
+    emissive: new THREE.Color().setHSL(212 / 360, 0.9, 0.6),
+    emissiveMap: glowTexture,
+    emissiveIntensity: 0.6,
   });
   const wall = new THREE.Mesh(wallGeo, wallMat);
   wall.position.z = -2.5;
+  wall.position.y = 0.8;
   scene.add(wall);
+
+  // --- stage floor: glossy dark deck that catches LED + spotlight ---
+  const floorGeo = new THREE.CircleGeometry(15, 48);
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x07090d,
+    metalness: 0.75,
+    roughness: 0.28,
+    envMap: envTexture,
+    envMapIntensity: 0.7,
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = CONFIG.floorY;
+  scene.add(floor);
+
+  const shadowTexture = new THREE.CanvasTexture(buildContactShadowTexture());
+  const shadowMat = new THREE.MeshBasicMaterial({
+    map: shadowTexture,
+    transparent: true,
+    depthWrite: false,
+    opacity: 0.75,
+  });
+  const contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.6), shadowMat);
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = CONFIG.floorY + 0.01;
+  contactShadow.position.x = 0.1;
+  scene.add(contactShadow);
 
   // --- giant glowing wordmark behind the monogram ---
   const wordmarkTexture = new THREE.CanvasTexture(buildWordmarkTexture(CONFIG.wordmarkLines));
@@ -262,10 +390,10 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     fog: false,
   });
   const wordmark = new THREE.Mesh(new THREE.PlaneGeometry(15, 7.5), wordmarkMat);
-  wordmark.position.set(0, 0, -3.6);
+  wordmark.position.set(0, 0.2, -3.6);
   scene.add(wordmark);
 
-  // --- glass "DD" monogram ---
+  // --- glass "DD" monogram: the main character on stage ---
   const dShape = buildDShape(CONFIG.letterWidth, CONFIG.letterHeight, CONFIG.letterBar);
   const dGeo = new THREE.ExtrudeGeometry(dShape, {
     depth: CONFIG.letterDepth,
@@ -282,24 +410,30 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   normalTexture.wrapT = THREE.RepeatWrapping;
   normalTexture.repeat.set(2, 2);
 
+  const frostTexture = new THREE.CanvasTexture(buildFrostRoughnessMap());
+  frostTexture.wrapS = THREE.RepeatWrapping;
+  frostTexture.wrapT = THREE.RepeatWrapping;
+
   const glassMat = new THREE.MeshPhysicalMaterial({
     transmission: 1,
-    thickness: 2.0,
-    roughness: 0.16,
+    thickness: 2.8,
+    roughness: 1, // driven by the frost roughness map
+    roughnessMap: frostTexture,
     ior: CONFIG.ior,
     metalness: 0,
-    clearcoat: 0.6,
-    clearcoatRoughness: 0.2,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.18,
     normalMap: normalTexture,
-    normalScale: new THREE.Vector2(0.07, 0.07),
+    normalScale: new THREE.Vector2(0.09, 0.09),
     envMap: envTexture,
     envMapIntensity: 1.7,
     color: new THREE.Color(0xf2f7ff),
     attenuationColor: new THREE.Color(0xa8d4ff),
-    attenuationDistance: 4.5,
+    attenuationDistance: 2.6,
     specularIntensity: 1,
-    iridescence: 0.2,
+    iridescence: 0.22,
     iridescenceIOR: 1.3,
+    dispersion: 4,
   });
 
   const monogram = new THREE.Group();
@@ -313,21 +447,35 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   monogram.position.x = -0.25;
   scene.add(monogram);
 
-  const baseQuat = monogram.quaternion.clone();
-  const targetQuat = baseQuat.clone();
+  // spinQuat is the user-owned orientation — dragging writes into it, momentum keeps it alive
+  const spinQuat = monogram.quaternion.clone();
+  const homeQuat = spinQuat.clone();
   const workEuler = new THREE.Euler();
-  const mouseQuat = new THREE.Quaternion();
+  const hoverQuat = new THREE.Quaternion();
+  const deltaQuat = new THREE.Quaternion();
+  const finalQuat = new THREE.Quaternion();
 
-  // --- lighting ---
-  const keyLight = new THREE.DirectionalLight(0xe8f0ff, 2.2);
+  // --- stage lighting ---
+  const keyLight = new THREE.DirectionalLight(0xe8f0ff, 1.9);
   keyLight.position.set(3, 4, 5);
   scene.add(keyLight);
 
-  const rimLight = new THREE.PointLight(0x3f8fe0, 6, 24, 2);
-  rimLight.position.set(-4, -1.5, 3);
-  scene.add(rimLight);
+  // overhead spotlight — theatrical key on the main character
+  const spot = new THREE.SpotLight(0xffffff, 55, 30, 0.45, 0.9, 1.6);
+  spot.position.set(0, 7.5, 3.5);
+  spot.target = monogram;
+  scene.add(spot);
 
-  const ambient = new THREE.HemisphereLight(0x2c4a72, 0x05070a, 0.65);
+  // LED wash lights — tinted by the current LED color each frame
+  const ledWash = new THREE.PointLight(0x3f8fe0, 6, 26, 2);
+  ledWash.position.set(-4, -1, 3);
+  scene.add(ledWash);
+
+  const ledWash2 = new THREE.PointLight(0x3f8fe0, 4, 26, 2);
+  ledWash2.position.set(4.5, 1.5, 1.5);
+  scene.add(ledWash2);
+
+  const ambient = new THREE.HemisphereLight(0x2c4a72, 0x05070a, 0.55);
   scene.add(ambient);
 
   // --- postprocessing ---
@@ -344,21 +492,111 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   grain.blendMode.opacity.value = 0.06;
   composer.addPass(new EffectPass(camera, bloom, chroma, vignette, grain));
 
+  // --- LED show state ---
+  const currentLed = new THREE.Color().setHSL(
+    CONFIG.ledPalette[0].h / 360,
+    CONFIG.ledPalette[0].s,
+    CONFIG.ledPalette[0].l
+  );
+  const targetLed = currentLed.clone();
+  const glassTintBase = new THREE.Color(0xdceafd);
+  const workColor = new THREE.Color();
+  let paletteIndex = 0;
+  let ledTimer = 0;
+
   // --- pointer state ---
   const pointer = { x: 0, y: 0 };
   const smoothedPointer = { x: 0, y: 0 };
+  // damped-spring tilt state (angle + angular velocity per axis)
+  const tilt = { x: 0, y: 0, vx: 0, vy: 0 };
+  let idleFade = 1;
+  // drag-to-spin state — direct manipulation with momentum, alche-style
+  const DRAG_SENS = 4.6; // radians across a full-viewport sweep
+  const drag = { active: false, lastX: 0, lastY: 0, lastT: 0, velYaw: 0, velPitch: 0 };
+
+  function showCrosshair(visible: boolean) {
+    const opacity = visible ? "1" : "0";
+    if (handles.crosshairV) handles.crosshairV.style.opacity = opacity;
+    if (handles.crosshairH) handles.crosshairH.style.opacity = opacity;
+    if (handles.coordText) handles.coordText.style.opacity = opacity;
+  }
 
   function onPointerMove(e: PointerEvent) {
     const rect = container.getBoundingClientRect();
-    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    pointer.x = (px / rect.width) * 2 - 1;
+    pointer.y = (py / rect.height) * 2 - 1;
+
+    // cursor-tracking HUD: the user always sees where the mouse is
+    if (handles.crosshairV) handles.crosshairV.style.transform = `translate3d(${px}px,0,0)`;
+    if (handles.crosshairH) handles.crosshairH.style.transform = `translate3d(0,${py}px,0)`;
+    if (handles.coordText) {
+      handles.coordText.style.transform = `translate3d(${px + 18}px,${py + 14}px,0)`;
+      handles.coordText.textContent = `X ${pointer.x.toFixed(2)}  Y ${(-pointer.y).toFixed(2)}`;
+    }
+    showCrosshair(true);
+
+    if (drag.active) {
+      const now = performance.now();
+      const dtm = Math.max(8, now - drag.lastT) / 1000;
+      const yawD = ((e.clientX - drag.lastX) / rect.width) * DRAG_SENS;
+      const pitchD = ((e.clientY - drag.lastY) / rect.height) * DRAG_SENS * 0.85;
+
+      // rotate around world axes — the letters follow the hand directly
+      workEuler.set(pitchD, yawD, 0, "XYZ");
+      deltaQuat.setFromEuler(workEuler);
+      spinQuat.premultiply(deltaQuat);
+
+      drag.velYaw = THREE.MathUtils.clamp(
+        THREE.MathUtils.lerp(drag.velYaw, yawD / dtm, 0.5),
+        -6,
+        6
+      );
+      drag.velPitch = THREE.MathUtils.clamp(
+        THREE.MathUtils.lerp(drag.velPitch, pitchD / dtm, 0.5),
+        -6,
+        6
+      );
+      drag.lastX = e.clientX;
+      drag.lastY = e.clientY;
+      drag.lastT = now;
+    }
   }
+
+  function onPointerDown(e: PointerEvent) {
+    drag.active = true;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    drag.lastT = performance.now();
+    drag.velYaw = 0;
+    drag.velPitch = 0;
+    container.setPointerCapture?.(e.pointerId);
+    container.style.cursor = "grabbing";
+  }
+
+  function onPointerUp(e: PointerEvent) {
+    drag.active = false;
+    container.style.cursor = "grab";
+    try {
+      container.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+  }
+
   function onPointerLeave() {
     pointer.x = 0;
     pointer.y = 0;
+    showCrosshair(false);
   }
 
+  container.style.cursor = "grab";
+  container.style.touchAction = "none";
   container.addEventListener("pointermove", onPointerMove);
+  container.addEventListener("pointerdown", onPointerDown);
+  container.addEventListener("pointerup", onPointerUp);
+  container.addEventListener("pointercancel", onPointerUp);
   container.addEventListener("pointerleave", onPointerLeave);
 
   function resize() {
@@ -372,9 +610,8 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     renderer.setSize(w, h);
     composer.setSize(w, h);
 
-    // scale the monogram down a touch on narrow screens
     const fit = Math.min(1, w / 900);
-    monogram.scale.setScalar(0.8 + fit * 0.2);
+    monogram.scale.setScalar(0.64 + fit * 0.16);
   }
 
   const resizeObserver = new ResizeObserver(resize);
@@ -383,36 +620,87 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
 
   let rafId = 0;
   const timer = new THREE.Timer();
-  let idleYaw = 0;
 
   function frame() {
     timer.update();
     const dt = Math.min(timer.getDelta(), 0.05);
     const t = timer.getElapsed();
 
-    smoothedPointer.x += (pointer.x - smoothedPointer.x) * 0.06;
-    smoothedPointer.y += (pointer.y - smoothedPointer.y) * 0.06;
+    smoothedPointer.x += (pointer.x - smoothedPointer.x) * 0.05;
+    smoothedPointer.y += (pointer.y - smoothedPointer.y) * 0.05;
 
-    idleYaw += CONFIG.idleYawSpeed * dt;
+    // hover tilt is garnish only — it eases out entirely while the hand is on the object
+    const hoverScale = drag.active ? 0 : 1;
+    const targetTiltX = -pointer.y * CONFIG.maxTiltRad * hoverScale;
+    const targetTiltY = pointer.x * CONFIG.maxTiltRad * hoverScale;
+    tilt.vx += ((targetTiltX - tilt.x) * CONFIG.tiltStiffness - tilt.vx * CONFIG.tiltDamping) * dt;
+    tilt.vy += ((targetTiltY - tilt.y) * CONFIG.tiltStiffness - tilt.vy * CONFIG.tiltDamping) * dt;
+    tilt.x += tilt.vx * dt;
+    tilt.y += tilt.vy * dt;
 
-    workEuler.set(
-      -smoothedPointer.y * CONFIG.maxTiltRad,
-      smoothedPointer.x * CONFIG.maxTiltRad + Math.sin(idleYaw) * 0.22,
-      0,
-      "XYZ"
-    );
-    mouseQuat.setFromEuler(workEuler);
-    targetQuat.copy(baseQuat).multiply(mouseQuat);
-    monogram.quaternion.slerp(targetQuat, CONFIG.slerpSpeed);
+    // released momentum carries the spin, decaying like a heavy flywheel
+    if (!drag.active) {
+      const momentum = Math.abs(drag.velYaw) + Math.abs(drag.velPitch);
+      if (momentum > 0.002) {
+        workEuler.set(drag.velPitch * dt, drag.velYaw * dt, 0, "XYZ");
+        deltaQuat.setFromEuler(workEuler);
+        spinQuat.premultiply(deltaQuat);
+        const decay = Math.exp(-2.1 * dt);
+        drag.velYaw *= decay;
+        drag.velPitch *= decay;
+      } else {
+        // untouched, the sculpture keeps a slow museum turn
+        workEuler.set(0, 0.055 * dt * idleFade, 0, "XYZ");
+        deltaQuat.setFromEuler(workEuler);
+        spinQuat.premultiply(deltaQuat);
+      }
+    }
 
-    monogram.position.y = Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude;
+    // idle breathing fades while the pointer is in command
+    const activity = Math.min(1, (Math.abs(pointer.x) + Math.abs(pointer.y)) * 1.6);
+    idleFade += (1 - activity - idleFade) * 0.02;
+    const idlePitch = Math.sin(t * 0.21) * 0.03 * idleFade;
+
+    // banking roll from total angular velocity — the mass is felt
+    const roll = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.4) * 0.04, -0.06, 0.06);
+
+    workEuler.set(tilt.x + idlePitch, tilt.y, roll, "XYZ");
+    hoverQuat.setFromEuler(workEuler);
+    finalQuat.copy(spinQuat).premultiply(hoverQuat);
+    monogram.quaternion.copy(finalQuat);
+
+    // back letter trails a breath behind the front — layered inertia
+    d2.rotation.x = THREE.MathUtils.clamp(-(tilt.vx + drag.velPitch * 0.5) * 0.045, -0.09, 0.09);
+    d2.rotation.y = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.5) * 0.045, -0.09, 0.09);
+
+    monogram.position.y = 0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude;
+    contactShadow.material.opacity = 0.75 - Math.sin(t * CONFIG.bobSpeed) * 0.12;
 
     camera.position.x = baseCameraPos.x + smoothedPointer.x * CONFIG.parallax;
     camera.position.y = baseCameraPos.y - smoothedPointer.y * CONFIG.parallax;
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(lookTarget);
 
-    wallMat.emissiveIntensity = 0.5 + Math.sin(t * 0.35) * 0.15;
-    rimLight.intensity = 5.5 + Math.sin(t * 0.6) * 1.2;
+    // --- LED show ---
+    ledTimer += dt;
+    if (ledTimer >= CONFIG.ledSwitchInterval) {
+      ledTimer = 0;
+      paletteIndex = (paletteIndex + 1) % CONFIG.ledPalette.length;
+      const next = CONFIG.ledPalette[paletteIndex];
+      targetLed.setHSL(next.h / 360, next.s, next.l);
+      glowSeed += 13;
+      paintGlowPattern(glowCtx, 1024, glowSeed);
+      glowTexture.needsUpdate = true;
+    }
+    currentLed.lerp(targetLed, CONFIG.ledLerpSpeed);
+
+    wallMat.emissive.copy(currentLed);
+    wallMat.emissiveIntensity = 0.95 + Math.sin(t * 1.7) * 0.18;
+    ledWash.color.copy(currentLed);
+    ledWash.intensity = 7 + Math.sin(t * 0.9) * 1.8;
+    ledWash2.color.copy(currentLed);
+    ledWash2.intensity = 5 + Math.sin(t * 1.2 + 1.5) * 1.4;
+    // the DD breathes with the LED color: glass tint follows the wash
+    glassMat.attenuationColor.copy(workColor.copy(currentLed).lerp(glassTintBase, 0.3));
     wordmarkMat.opacity = 0.92 + Math.sin(t * 0.8) * 0.08;
 
     if (handles.quatText) {
@@ -430,16 +718,23 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   const tl = gsap.timeline();
   tl.to(renderer.domElement, { opacity: 1, duration: 1.6, ease: "power2.out" });
   tl.from(monogram.position, { z: -1.6, duration: 1.9, ease: "expo.out" }, "<");
-  tl.from(rimLight, { intensity: 0, duration: 1.8, ease: "power2.out" }, "<");
+  tl.from(spot, { intensity: 0, duration: 2.2, ease: "power2.out" }, "<0.3");
+  tl.from(ledWash, { intensity: 0, duration: 1.8, ease: "power2.out" }, "<");
 
   rafId = requestAnimationFrame(frame);
 
   function resetOrientation() {
-    idleYaw = 0;
     pointer.x = 0;
     pointer.y = 0;
     smoothedPointer.x = 0;
     smoothedPointer.y = 0;
+    tilt.x = 0;
+    tilt.y = 0;
+    tilt.vx = 0;
+    tilt.vy = 0;
+    drag.velYaw = 0;
+    drag.velPitch = 0;
+    spinQuat.copy(homeQuat);
   }
 
   function dispose() {
@@ -447,6 +742,9 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     timer.dispose();
     resizeObserver.disconnect();
     container.removeEventListener("pointermove", onPointerMove);
+    container.removeEventListener("pointerdown", onPointerDown);
+    container.removeEventListener("pointerup", onPointerUp);
+    container.removeEventListener("pointercancel", onPointerUp);
     container.removeEventListener("pointerleave", onPointerLeave);
     tl.kill();
 
@@ -455,11 +753,18 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     glassMat.dispose();
     wallGeo.dispose();
     wallMat.dispose();
-    wallTexture.dispose();
+    wallBaseTexture.dispose();
+    glowTexture.dispose();
+    floorGeo.dispose();
+    floorMat.dispose();
+    contactShadow.geometry.dispose();
+    shadowMat.dispose();
+    shadowTexture.dispose();
     wordmark.geometry.dispose();
     wordmarkMat.dispose();
     wordmarkTexture.dispose();
     normalTexture.dispose();
+    frostTexture.dispose();
     envTexture.dispose();
     pmrem.dispose();
     renderer.dispose();
