@@ -452,7 +452,8 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     const rect = container.getBoundingClientRect();
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    /* phones get a lower pixel-ratio cap — refraction + render targets are heavy */
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, w < 768 ? 1.5 : 1.75));
     renderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();

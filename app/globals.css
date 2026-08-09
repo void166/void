@@ -114,6 +114,14 @@ body {
   opacity: 0.45;
 }
 
+/* a full-screen blend layer is too costly on phone GPUs — and 1px lines
+   moiré on high-DPR screens; the hero keeps its own CRT overlay */
+@media (max-width: 767px) {
+  .scanlines-fixed {
+    display: none;
+  }
+}
+
 /* big display headings */
 .display-title {
   font-weight: 900;

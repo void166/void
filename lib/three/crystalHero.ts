@@ -547,16 +547,21 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     const rect = container.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    pointer.x = (px / rect.width) * 2 - 1;
-    pointer.y = (py / rect.height) * 2 - 1;
 
-    if (handles.crosshairV) handles.crosshairV.style.transform = `translate3d(${px}px,0,0)`;
-    if (handles.crosshairH) handles.crosshairH.style.transform = `translate3d(0,${py}px,0)`;
-    if (handles.coordText) {
-      handles.coordText.style.transform = `translate3d(${px + 18}px,${py + 14}px,0)`;
-      handles.coordText.textContent = `X ${pointer.x.toFixed(2)}  Y ${(-pointer.y).toFixed(2)}`;
+    /* hover tilt + crosshair HUD are mouse-only — on touch, a lifted finger
+       would leave both frozen at the last contact point */
+    if (e.pointerType === "mouse") {
+      pointer.x = (px / rect.width) * 2 - 1;
+      pointer.y = (py / rect.height) * 2 - 1;
+
+      if (handles.crosshairV) handles.crosshairV.style.transform = `translate3d(${px}px,0,0)`;
+      if (handles.crosshairH) handles.crosshairH.style.transform = `translate3d(0,${py}px,0)`;
+      if (handles.coordText) {
+        handles.coordText.style.transform = `translate3d(${px + 18}px,${py + 14}px,0)`;
+        handles.coordText.textContent = `X ${pointer.x.toFixed(2)}  Y ${(-pointer.y).toFixed(2)}`;
+      }
+      showCrosshair(true);
     }
-    showCrosshair(true);
 
     if (drag.active) {
       const now = performance.now();
@@ -604,7 +609,9 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   }
 
   container.style.cursor = "grab";
-  container.style.touchAction = "none";
+  /* pan-y: vertical swipes keep scrolling the page on touch screens;
+     horizontal drags still rotate the model */
+  container.style.touchAction = "pan-y";
   container.addEventListener("pointermove", onPointerMove);
   container.addEventListener("pointerdown", onPointerDown);
   container.addEventListener("pointerup", onPointerUp);
@@ -615,7 +622,8 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     const rect = container.getBoundingClientRect();
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    /* phones get a lower pixel-ratio cap — the bg + glass shaders are heavy */
+    const dpr = Math.min(window.devicePixelRatio || 1, w < 768 ? 1.5 : 2);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setPixelRatio(dpr);
@@ -632,7 +640,10 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     glassUniforms.uRes.value.copy(drawSize);
 
     const fit = Math.min(1, w / 900);
-    monogram.scale.setScalar(0.6 + fit * 0.16);
+    /* portrait frustums are narrow: visible width at the model is
+       ~5.1 * aspect world units and the GLB is fitted to <= 5.2 wide,
+       so cap the scale at 0.88 * aspect to keep it fully on screen */
+    monogram.scale.setScalar(Math.min(0.6 + fit * 0.16, 0.88 * camera.aspect));
     layoutText();
   }
 

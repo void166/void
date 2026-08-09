@@ -127,7 +127,7 @@ export default function CrystalHero() {
         ))}
       </div>
 
-      <div className="pointer-events-auto absolute right-6 top-6 text-right">
+      <div className="pointer-events-auto absolute right-6 top-6 hidden text-right sm:block">
         <div className="eyebrow pointer-events-none text-white/30">MainLogo Quaternion</div>
         <div ref={quatTextRef} className="pointer-events-none mt-1 font-mono text-[11px] text-white/40">
           0.00 0.00 0.00 1.00
@@ -153,7 +153,7 @@ export default function CrystalHero() {
       </div>
 
       {/* MainLogo Material — live debug panel, alche-style */}
-      <div className="pointer-events-auto absolute bottom-6 left-6 w-64 select-none">
+      <div className="pointer-events-auto absolute bottom-6 left-6 hidden w-64 select-none sm:block">
         <div className="eyebrow pointer-events-none text-white/30">MainLogo Material</div>
         <div className="mt-3 flex items-center gap-3 font-mono text-[11px] text-white/40">
           <span className="w-20 shrink-0">roughness</span>

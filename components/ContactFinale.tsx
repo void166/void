@@ -9,6 +9,9 @@ export default function ContactFinale() {
   const emailRef = useRef<HTMLAnchorElement | null>(null);
 
   useEffect(() => {
+    /* magnetic pull is a hover effect — on touch it just makes the button
+       jump around under a scrolling finger */
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     const el = emailRef.current;
     if (!el) return;
     const onMove = (e: PointerEvent) => {
@@ -32,7 +35,7 @@ export default function ContactFinale() {
   return (
     <section
       id="contact"
-      className="relative flex min-h-screen scroll-mt-20 flex-col items-center justify-center overflow-hidden py-24"
+      className="relative flex min-h-svh scroll-mt-20 flex-col items-center justify-center overflow-hidden py-24"
       style={{
         background:
           "radial-gradient(80% 70% at 15% 20%, #14434d 0%, transparent 60%), radial-gradient(90% 80% at 85% 85%, #3d0b33 0%, transparent 65%), #050505",

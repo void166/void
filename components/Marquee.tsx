@@ -17,6 +17,8 @@ export default function Marquee({ items = DEFAULT_ITEMS }: { items?: string[] })
     const el = skewRef.current;
     if (!el) return;
 
+    /* quickTo reuses a single tween — no per-scroll-event allocations */
+    const setSkew = gsap.quickTo(el, "skewX", { duration: 0.3, ease: "power2.out" });
     let lastY = window.scrollY;
     let lastT = performance.now();
     let idleTimer = 0;
@@ -27,12 +29,9 @@ export default function Marquee({ items = DEFAULT_ITEMS }: { items?: string[] })
       const v = ((window.scrollY - lastY) / dt) * 1000; // px per second
       lastY = window.scrollY;
       lastT = now;
-      const skew = gsap.utils.clamp(-9, 9, v * 0.006);
-      gsap.to(el, { skewX: skew, duration: 0.3, ease: "power2.out", overwrite: "auto" });
+      setSkew(gsap.utils.clamp(-9, 9, v * 0.006));
       window.clearTimeout(idleTimer);
-      idleTimer = window.setTimeout(() => {
-        gsap.to(el, { skewX: 0, duration: 0.6, ease: "power3.out", overwrite: "auto" });
-      }, 90);
+      idleTimer = window.setTimeout(() => setSkew(0), 90);
     };
 
     window.addEventListener("scroll", onScroll, { passive: true });

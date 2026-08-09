@@ -11,6 +11,9 @@ import { createWorksShowcase, shapeSegment, type WorksApi } from "@/lib/three/wo
  * Immersive, pinned project exhibition.
  * DOM handles text/navigation; WebGL handles glass, planes, background.
  * One scroll timeline drives everything — index + local progress.
+ *
+ * Runs at every viewport size; reduced motion / missing WebGL fall
+ * back to an elegant list.
  */
 export default function WorksShowcase() {
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -24,32 +27,32 @@ export default function WorksShowcase() {
   const cursorRef = useRef<HTMLDivElement | null>(null);
   const apiRef = useRef<WorksApi | null>(null);
   const [segment, setSegment] = useState(0);
-  const [mode, setMode] = useState<"full" | "simple" | "pending">("pending");
+  const [fallback, setFallback] = useState(false);
 
-  /* decide experience level on the client */
   useEffect(() => {
-    const simple =
+    if (
       window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
-      window.innerWidth < 768 ||
-      !window.WebGLRenderingContext;
-    setMode(simple ? "simple" : "full");
-  }, []);
+      !window.WebGLRenderingContext
+    ) {
+      setFallback(true);
+      return;
+    }
 
-  useEffect(() => {
-    if (mode !== "full") return;
     const host = canvasHostRef.current;
     const section = sectionRef.current;
-    if (!host || !section) return;
+    const sticky = stickyRef.current;
+    if (!host || !section || !sticky) return;
 
     try {
       apiRef.current = createWorksShowcase(host, works);
     } catch (err) {
       console.error("[WorksShowcase] WebGL init failed:", err);
-      setMode("simple");
+      setFallback(true);
       return;
     }
 
     gsap.registerPlugin(ScrollTrigger);
+    ScrollTrigger.config({ ignoreMobileResize: true });
     const segments = works.length - 1;
     let lastShown = 0;
     let lastSegment = 0;
@@ -108,10 +111,11 @@ export default function WorksShowcase() {
       },
     });
 
-    /* subtle mouse influence + custom cursor */
-    const sticky = stickyRef.current;
+    /* subtle mouse influence + custom cursor — hover devices only */
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     const onMove = (e: PointerEvent) => {
-      const rect = sticky!.getBoundingClientRect();
+      if (!fine) return;
+      const rect = sticky.getBoundingClientRect();
       const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
       apiRef.current?.setPointer(nx, ny);
@@ -129,26 +133,26 @@ export default function WorksShowcase() {
       if (cursorRef.current) gsap.to(cursorRef.current, { opacity: 0, duration: 0.3 });
     };
     const onEnter = () => {
-      if (cursorRef.current) gsap.to(cursorRef.current, { opacity: 1, duration: 0.3 });
+      if (fine && cursorRef.current) gsap.to(cursorRef.current, { opacity: 1, duration: 0.3 });
     };
-    sticky?.addEventListener("pointermove", onMove);
-    sticky?.addEventListener("pointerleave", onLeave);
-    sticky?.addEventListener("pointerenter", onEnter);
+    sticky.addEventListener("pointermove", onMove);
+    sticky.addEventListener("pointerleave", onLeave);
+    sticky.addEventListener("pointerenter", onEnter);
 
     return () => {
       st.kill();
-      sticky?.removeEventListener("pointermove", onMove);
-      sticky?.removeEventListener("pointerleave", onLeave);
-      sticky?.removeEventListener("pointerenter", onEnter);
+      sticky.removeEventListener("pointermove", onMove);
+      sticky.removeEventListener("pointerleave", onLeave);
+      sticky.removeEventListener("pointerenter", onEnter);
       apiRef.current?.dispose();
       apiRef.current = null;
     };
-  }, [mode]);
+  }, []);
 
-  /* ---------- simple fallback: elegant list, no WebGL ---------- */
-  if (mode === "simple") {
+  /* ---------- list fallback: reduced motion / no WebGL ---------- */
+  if (fallback) {
     return (
-      <section id="works" className="border-b border-line py-24 scroll-mt-20">
+      <section id="works" className="scroll-mt-20 border-b border-line py-24">
         <div className="container-page">
           <div className="eyebrow flex items-center gap-3 text-mist">
             <span className="inline-block h-px w-6 bg-line-strong" aria-hidden />
@@ -188,10 +192,10 @@ export default function WorksShowcase() {
     <section
       id="works"
       ref={sectionRef}
-      className="relative scroll-mt-0"
-      style={{ height: `${works.length * 120}vh` }}
+      className="relative"
+      style={{ height: `${works.length * 120}svh` }}
     >
-      <div ref={stickyRef} className="sticky top-0 h-screen w-full overflow-hidden bg-[#020202]">
+      <div ref={stickyRef} className="sticky top-0 h-svh w-full overflow-hidden bg-[#020202]">
         {/* WebGL stage */}
         <div ref={canvasHostRef} className="absolute inset-0" />
 
@@ -223,29 +227,29 @@ export default function WorksShowcase() {
         </div>
 
         {/* current project meta */}
-        <div ref={titleCurRef} className="absolute bottom-14 left-6 max-w-xl will-change-transform sm:bottom-16 sm:left-10">
+        <div ref={titleCurRef} className="absolute bottom-14 left-6 right-6 max-w-xl will-change-transform sm:bottom-16 sm:left-10 sm:right-auto">
           <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">
             {cur.category} · {cur.year}
           </div>
-          <h3 className="display-title mt-3 text-4xl text-paper sm:text-6xl" data-no-split>
+          <h3 className="display-title mt-3 text-3xl text-paper sm:text-6xl" data-no-split>
             {cur.title}
           </h3>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-mist">{cur.description}</p>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-mist sm:mt-4">{cur.description}</p>
           <MagneticLink href={cur.href} />
         </div>
 
         {/* incoming project meta (fades in during transition) */}
         <div
           ref={titleNextRef}
-          className="pointer-events-none absolute bottom-14 left-6 max-w-xl opacity-0 will-change-transform sm:bottom-16 sm:left-10"
+          className="pointer-events-none absolute bottom-14 left-6 right-6 max-w-xl opacity-0 will-change-transform sm:bottom-16 sm:left-10 sm:right-auto"
         >
           <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">
             {nxt.category} · {nxt.year}
           </div>
-          <h3 className="display-title mt-3 text-4xl text-paper sm:text-6xl" data-no-split>
+          <h3 className="display-title mt-3 text-3xl text-paper sm:text-6xl" data-no-split>
             {nxt.title}
           </h3>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-mist">{nxt.description}</p>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-mist sm:mt-4">{nxt.description}</p>
         </div>
 
         {/* scroll hint */}
@@ -278,6 +282,7 @@ function MagneticLink({ href }: { href: string }) {
   const ref = useRef<HTMLAnchorElement | null>(null);
 
   useEffect(() => {
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     const el = ref.current;
     if (!el) return;
     const onMove = (e: PointerEvent) => {

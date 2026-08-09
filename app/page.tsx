@@ -8,7 +8,8 @@ export default function Home() {
   return (
     <>
       {/* 01 — glass hero */}
-      <section className="relative h-[calc(100vh-69px)] min-h-[600px] w-full overflow-hidden bg-[#050505]">
+      {/* svh: sized to the small viewport so mobile browser chrome never hides the bottom */}
+      <section className="relative h-[calc(100svh-69px)] min-h-[600px] w-full overflow-hidden bg-[#050505]">
         <CrystalHero />
       </section>
 

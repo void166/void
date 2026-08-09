@@ -10,6 +10,9 @@ import { shapeSegment } from "@/lib/three/worksShowcase";
  * Pinned deck of full-screen panels that switch with works-style
  * choreography. Each panel owns a color world — the background
  * gradient morphs between them as you scroll.
+ *
+ * Runs at every viewport size; reduced-motion users get plain
+ * stacked sections instead.
  */
 
 type Panel = {
@@ -32,29 +35,31 @@ function buildPanels(): Panel[] {
       glowA: "#2a0b52",
       glowB: "#0b0322",
       content: (
-        <div className="grid w-full max-w-5xl grid-cols-1 gap-10 lg:grid-cols-[1.2fr_1fr] lg:items-start">
+        <div className="grid w-full max-w-5xl grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr] lg:items-start lg:gap-10">
           <div>
-            <h2 className="display-title text-4xl sm:text-6xl" data-no-split>
+            <h2 className="display-title text-3xl sm:text-6xl" data-no-split>
               Hi, I&apos;m {profile.name}.
             </h2>
-            <div className="mt-4 font-mono text-xs uppercase tracking-[0.2em] text-mist">
+            <div className="mt-3 font-mono text-xs uppercase tracking-[0.2em] text-mist sm:mt-4">
               {profile.fullName}
             </div>
-            <p className="mt-6 max-w-xl text-base leading-relaxed text-mist sm:text-lg">{profile.bio}</p>
-            <div className="mt-10 grid grid-cols-3 gap-px border border-white/15 bg-white/15">
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-mist sm:mt-6 sm:text-lg">{profile.bio}</p>
+            <div className="mt-6 grid grid-cols-3 gap-px border border-white/15 bg-white/15 sm:mt-10">
               {profile.stats.map((s) => (
-                <div key={s.label} className="bg-black/40 p-5 backdrop-blur-sm">
-                  <div className="text-3xl font-black" style={{ color: "var(--panel-accent)" }}>
+                <div key={s.label} className="bg-black/40 p-3 backdrop-blur-sm sm:p-5">
+                  <div className="text-xl font-black sm:text-3xl" style={{ color: "var(--panel-accent)" }}>
                     {s.value}
                   </div>
-                  <div className="eyebrow mt-2 text-mist">{s.label}</div>
+                  <div className="mt-2 break-words font-mono text-[10px] uppercase tracking-[0.1em] text-mist">
+                    {s.label}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* current status card */}
-          <div className="border border-white/15 bg-black/40 backdrop-blur-sm">
+          {/* current status card — desktop only; the essentials live elsewhere on mobile */}
+          <div className="hidden border border-white/15 bg-black/40 backdrop-blur-sm lg:block">
             {[
               { k: "Currently", v: profile.work.role, sub: `${profile.work.company} · ${profile.work.since}` },
               { k: "Education", v: profile.education.degree, sub: `${profile.education.school} · ${profile.education.years}` },
@@ -82,19 +87,22 @@ function buildPanels(): Panel[] {
       glowB: "#071203",
       content: (
         <div className="w-full max-w-3xl">
-          <h2 className="display-title text-4xl sm:text-6xl" data-no-split>
+          <h2 className="display-title text-3xl sm:text-6xl" data-no-split>
             Tools I ship with.
           </h2>
-          <div className="mt-10 grid grid-cols-1 gap-px border border-white/15 bg-white/15 sm:grid-cols-2">
+          <div className="mt-6 grid grid-cols-2 gap-px border border-white/15 bg-white/15 sm:mt-10">
             {profile.stack.map((s, i) => (
-              <div key={s.name} className="group flex items-baseline justify-between gap-4 bg-black/40 px-5 py-4 backdrop-blur-sm">
-                <span className="flex items-baseline gap-3">
+              <div
+                key={s.name}
+                className="group flex flex-col gap-0.5 bg-black/40 px-3 py-2.5 backdrop-blur-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-4 sm:px-5 sm:py-4"
+              >
+                <span className="flex items-baseline gap-2 sm:gap-3">
                   <span className="font-mono text-[10px] tracking-[0.2em] text-fog">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span className="font-bold uppercase tracking-wide text-paper">{s.name}</span>
+                  <span className="text-xs font-bold uppercase tracking-wide text-paper sm:text-base">{s.name}</span>
                 </span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.15em]" style={{ color: "var(--panel-accent)" }}>
+                <span className="pl-5 font-mono text-[9px] uppercase tracking-[0.15em] sm:pl-0 sm:text-[10px]" style={{ color: "var(--panel-accent)" }}>
                   {s.note}
                 </span>
               </div>
@@ -112,20 +120,20 @@ function buildPanels(): Panel[] {
       glowB: "#120702",
       content: (
         <div className="max-w-3xl">
-          <h2 className="display-title text-4xl sm:text-6xl" data-no-split>
+          <h2 className="display-title text-3xl sm:text-6xl" data-no-split>
             Short story, steep curve.
           </h2>
-          <ol className="mt-10 space-y-6 border-l border-white/20 pl-8">
+          <ol className="mt-6 space-y-5 border-l border-white/20 pl-6 sm:mt-10 sm:space-y-6 sm:pl-8">
             {profile.journey.map((j) => (
               <li key={j.title} className="relative">
                 <span
-                  className="absolute -left-[37px] top-1.5 h-2.5 w-2.5"
+                  className="absolute -left-[29px] top-1.5 h-2.5 w-2.5 sm:-left-[37px]"
                   style={{ background: "var(--panel-accent)" }}
                 />
                 <div className="font-mono text-xs tracking-[0.25em]" style={{ color: "var(--panel-accent)" }}>
                   {j.year}
                 </div>
-                <div className="mt-1 text-lg font-black uppercase tracking-wide text-paper">{j.title}</div>
+                <div className="mt-1 text-base font-black uppercase tracking-wide text-paper sm:text-lg">{j.title}</div>
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-mist">{j.text}</p>
               </li>
             ))}
@@ -137,7 +145,7 @@ function buildPanels(): Panel[] {
 }
 
 export default function SectionDeck() {
-  const panels = useRef(buildPanels()).current;
+  const [panels] = useState(buildPanels);
   const sectionRef = useRef<HTMLElement | null>(null);
   const bgRef = useRef<HTMLDivElement | null>(null);
   const wordCurRef = useRef<HTMLDivElement | null>(null);
@@ -155,6 +163,9 @@ export default function SectionDeck() {
     if (!section) return;
 
     gsap.registerPlugin(ScrollTrigger);
+    /* phone address bars fire resize as they collapse — don't recalc mid-scroll */
+    ScrollTrigger.config({ ignoreMobileResize: true });
+
     const segments = panels.length - 1;
     let lastSeg = 0;
     const lerpColor = (a: string, b: string, t: number) => gsap.utils.interpolate(a, b, t);
@@ -234,13 +245,26 @@ export default function SectionDeck() {
   /* reduced motion: plain stacked sections */
   if (reduced) {
     return (
-      <>
+      <div id="about">
         {panels.map((p) => (
-          <section key={p.id} id={p.id} className="border-b border-line py-24 scroll-mt-20">
-            <div className="container-page">{p.content}</div>
+          <section
+            key={p.id}
+            className="scroll-mt-20 border-b border-line py-20"
+            style={{
+              background: `radial-gradient(120% 70% at 15% 0%, ${p.glowA} 0%, transparent 60%), radial-gradient(120% 80% at 90% 100%, ${p.glowB} 0%, transparent 65%), #050505`,
+              ["--panel-accent" as string]: p.accent,
+            }}
+          >
+            <div className="container-page">
+              <div className="eyebrow mb-6 flex items-center gap-3" style={{ color: p.accent }}>
+                <span className="inline-block h-px w-6" style={{ background: p.accent }} aria-hidden />
+                {p.eyebrow}
+              </div>
+              {p.content}
+            </div>
           </section>
         ))}
-      </>
+      </div>
     );
   }
 
@@ -252,9 +276,9 @@ export default function SectionDeck() {
       id="about"
       ref={sectionRef}
       className="relative"
-      style={{ height: `${panels.length * 110}vh` }}
+      style={{ height: `${panels.length * 110}svh` }}
     >
-      <div className="sticky top-0 h-screen w-full overflow-hidden">
+      <div className="sticky top-0 h-svh w-full overflow-hidden">
         {/* morphing color world */}
         <div
           ref={bgRef}
@@ -277,7 +301,7 @@ export default function SectionDeck() {
             {nxt.word}
           </div>
 
-          {/* panels */}
+          {/* panels — inline first-panel visibility keeps the pre-GSAP paint correct */}
           {panels.map((p, idx) => (
             <div
               key={p.id}
@@ -285,13 +309,14 @@ export default function SectionDeck() {
                 panelRefs.current[idx] = el;
               }}
               className="absolute inset-0 flex items-center will-change-transform"
+              style={{ opacity: idx === 0 ? 1 : 0 }}
             >
               <div className="container-page pt-16">
                 <div className="eyebrow flex items-center gap-3" style={{ color: p.accent }}>
                   <span className="inline-block h-px w-6" style={{ background: p.accent }} aria-hidden />
                   {p.eyebrow}
                 </div>
-                <div className="mt-6">{p.content}</div>
+                <div className="mt-4 sm:mt-6">{p.content}</div>
               </div>
             </div>
           ))}
