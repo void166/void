@@ -55,18 +55,21 @@ const CONFIG = {
 /* triangle watermarks, glitch bands, film grain)                     */
 /* ------------------------------------------------------------------ */
 const BG_VERT = /* glsl */ `
-  void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }
+  varying vec2 vUv;
+  void main(){
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
 `;
 
 const BG_FRAG = /* glsl */ `
   precision highp float;
   uniform float uTime;
-  uniform float uScroll;
   uniform float uWorld;
   uniform vec3  uAccent;
   uniform vec3  uGlowA;
   uniform vec3  uGlowB;
-  uniform vec2  uRes;
+  varying vec2 vUv;
 
   float hash(vec2 p){
     p = fract(p*vec2(123.34, 456.21));
@@ -74,118 +77,65 @@ const BG_FRAG = /* glsl */ `
     return fract(p.x*p.y);
   }
 
-  float triSDF(vec2 p, float r){
-    const float k = 1.7320508;
-    p.x = abs(p.x) - r;
-    p.y = p.y + r/k;
-    if (p.x + k*p.y > 0.0) p = vec2(p.x - k*p.y, -k*p.x - p.y)/2.0;
-    p.x -= clamp(p.x, -2.0*r, 0.0);
-    return -length(p)*sign(p.y);
-  }
-
   void main(){
-    vec2 frag = gl_FragCoord.xy;
-    vec2 uv = frag / uRes;
-    float aspect = uRes.x / uRes.y;
-    vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
-
+    vec2 uv = vUv;
     float t = uTime;
 
-    /* occasional horizontal glitch displacement */
-    float band  = floor(uv.y * 36.0);
-    float gseed = hash(vec2(band, floor(t*2.5)));
-    if (gseed > 0.965){
-      uv.x += (hash(vec2(band, floor(t*7.0))) - 0.5) * 0.10;
-      p.x  += (gseed - 0.98) * 2.0;
-    }
-
-    /* curved zebra stripes around two swirl centers */
-    vec2 c1 = p - vec2(-0.45, 0.18);
-    vec2 c2 = p - vec2( 0.52,-0.25);
-    float a1 = atan(c1.y, c1.x), r1 = length(c1);
-    float a2 = atan(c2.y, c2.x), r2 = length(c2);
-    float sw1 = sin(a1*4.0 + r1*13.0 - t*0.12 + uScroll*2.4);
-    float sw2 = sin(a2*5.0 - r2*15.0 + t*0.09 - uScroll*1.8);
-    float blendMask = smoothstep(-0.3, 0.3, sin(p.x*1.3 + p.y*0.9 + t*0.05));
-    float field = mix(sw1, sw2, blendMask);
-    float zebra = smoothstep(-0.08, 0.08, field);
-    float zebraMask = smoothstep(1.65, 0.30, min(r1, r2));
-    float stripes = zebra * zebraMask;
-
-    /* tile grid with per-tile flicker */
-    vec2 grid = vec2(26.0*aspect, 26.0);
+    /* LED pixel lattice across the whole wall */
+    vec2 grid = vec2(260.0, 72.0);
     vec2 cell = floor(uv * grid);
     vec2 cuv  = fract(uv * grid);
+    float dotMask = smoothstep(0.52, 0.36, max(abs(cuv.x - 0.5), abs(cuv.y - 0.5)));
+
+    /* ---------- hero content: the glitch show ---------- */
+    vec2 guv = uv;
+    float band  = floor(guv.y * 42.0);
+    float gseed = hash(vec2(band, floor(t*2.5)));
+    if (gseed > 0.965){
+      guv.x += (hash(vec2(band, floor(t*7.0))) - 0.5) * 0.05;
+    }
+    vec2 p = (guv - 0.5) * vec2(7.5, 2.6);
+    vec2 c1 = p - vec2(-1.7, 0.45);
+    vec2 c2 = p - vec2( 1.9,-0.55);
+    float a1 = atan(c1.y, c1.x), r1 = length(c1);
+    float a2 = atan(c2.y, c2.x), r2 = length(c2);
+    float sw1 = sin(a1*4.0 + r1*5.5 - t*0.12);
+    float sw2 = sin(a2*5.0 - r2*6.5 + t*0.09);
+    float blendMask = smoothstep(-0.3, 0.3, sin(p.x*0.7 + p.y*0.9 + t*0.05));
+    float zebra = smoothstep(-0.08, 0.08, mix(sw1, sw2, blendMask));
+    float zebraMask = smoothstep(3.4, 0.6, min(r1, r2));
     float flickStep = floor(t*3.0);
     float fl = hash(cell + flickStep*0.013);
     float tileLum = step(0.95, fl) * 0.05 + step(0.99, fl) * 0.14;
-    /* rare tiles flash in the accent color */
     float accentTile = step(0.996, hash(cell + flickStep*0.029 + 7.7));
-    float lineSum = (step(cuv.x, 0.035) + step(1.0-0.035, cuv.x)
-                   + step(cuv.y, 0.035) + step(1.0-0.035, cuv.y));
-    float gridLines = clamp(lineSum, 0.0, 1.0) * 0.045;
 
-    /* scattered triangle watermarks */
-    float triMark = 0.0;
-    float tsel = hash(cell*1.7 + 3.1);
-    if (tsel > 0.90){
-      float d = triSDF((cuv - 0.5)*2.2, 0.62);
-      triMark = (1.0 - smoothstep(0.02, 0.09, abs(d))) * 0.10;
-    }
-
-    vec3 col = vec3(0.010);
-    col += vec3(0.105) * stripes;
-    col += vec3(1.0) * tileLum;
-    col += uAccent * accentTile * 0.30;
-    col += vec3(1.0) * gridLines;
-    col += vec3(1.0) * triMark * 0.7;
-
-    /* film noise */
-    col += (hash(frag + fract(t)*111.0) - 0.5) * 0.035;
-
+    vec3 heroCol = vec3(0.012);
+    heroCol += vec3(0.10) * zebra * zebraMask;
+    heroCol += vec3(1.0) * tileLum;
+    heroCol += uAccent * accentTile * 0.30;
     /* subtle centre glow so the glass has something to catch */
-    col += mix(vec3(0.03), uAccent * 0.05, 0.4) * smoothstep(0.9, 0.0, length(p));
+    heroCol += mix(vec3(0.03), uAccent * 0.05, 0.4) * smoothstep(0.5, 0.0, distance(uv, vec2(0.5)));
 
-    /* dim as the hero world hands over */
-    col *= 1.0 - uScroll * 0.55;
+    /* ---------- about content: dark LED room washed by the section glow ---------- */
+    vec3 roomGlow = mix(uGlowA, uGlowB, clamp(uv.x * 0.8 + uv.y * 0.4 - 0.1, 0.0, 1.0));
+    vec3 aboutCol = vec3(0.010);
+    aboutCol += roomGlow * 1.4;
+    aboutCol += vec3(1.0) * tileLum * 0.6;
+    aboutCol += uAccent * accentTile * 0.12;
 
-    /* about world: a curved LED screen wrapping the stage —
-       uWorld dissolves the glitch wall into it */
-    vec2 luv = uv - 0.5;
-    /* concave-screen distortion: rows squeeze toward the edges,
-       columns bow slightly — like standing inside a curved LED wall */
-    luv.y *= 1.0 - luv.x * luv.x * 0.5;
-    luv.x *= 1.0 + luv.y * luv.y * 0.14;
-    luv += 0.5;
+    vec3 content = mix(heroCol, aboutCol, uWorld);
 
-    /* LED dot matrix */
-    vec2 lgrid = vec2(96.0 * aspect, 54.0);
-    vec2 lcell = floor(luv * lgrid);
-    vec2 lcuv  = fract(luv * lgrid);
-    float dot_ = smoothstep(0.46, 0.16, length(lcuv - 0.5));
-    float lflick = 0.45 + 0.55 * hash(lcell + floor(t * 2.0) * 0.017);
-    vec3 ledTint = mix(uGlowA, uGlowB, clamp(luv.x * 0.6 + luv.y * 0.6 - 0.1, 0.0, 1.0));
-    /* occasional bright accent pixels, like a wall testing its panels */
-    float hot = step(0.995, hash(lcell + floor(t * 1.4) * 0.031 + 3.7));
+    /* ---------- LED-ize ---------- */
+    float cellVar = 0.82 + 0.36 * hash(cell * 0.731);
+    vec3 col = content * dotMask * cellVar;
+    col += vec3(0.013) * (1.0 - dotMask);
 
-    vec3 field = vec3(0.012);
-    field += ledTint * 2.3 * dot_ * lflick;
-    field += uAccent * hot * dot_ * 0.5;
+    /* module seams */
+    col += vec3(0.026) * clamp(step(fract(uv.x * 28.0), 0.0035) + step(fract(uv.y * 9.0), 0.007), 0.0, 1.0);
 
-    /* LED module seams */
-    float seam = step(fract(luv.y * 6.0), 0.008) + step(fract(luv.x * 10.0), 0.005);
-    field += vec3(0.045) * clamp(seam, 0.0, 1.0);
-
-    /* soft color wash + scanline sweep */
-    field += uGlowA * (1.0 - smoothstep(0.0, 0.8, distance(luv, vec2(0.15, 0.85)))) * 0.4;
-    field += uGlowB * (1.0 - smoothstep(0.0, 0.85, distance(luv, vec2(0.87, 0.10)))) * 0.4;
-    field += ledTint * 1.2 * smoothstep(0.06, 0.0, abs(luv.y - fract(t * 0.06) * 1.3 + 0.15));
-
-    /* curved-screen vignette: edges fall into darkness */
-    field *= 1.0 - 0.7 * smoothstep(0.35, 0.72, length(uv - 0.5));
-    field += (hash(frag + fract(t)*57.0) - 0.5) * 0.02;
-
-    col = mix(col, field, uWorld);
+    /* film noise + top/bottom falloff into darkness */
+    col += (hash(uv * 913.7 + fract(t) * 71.0) - 0.5) * 0.02;
+    col *= smoothstep(0.0, 0.14, uv.y) * smoothstep(1.0, 0.84, uv.y);
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -365,9 +315,9 @@ function makeLogoGeometry(): THREE.ExtrudeGeometry {
 /* About ring: curved glass panes orbiting the model                   */
 /* ------------------------------------------------------------------ */
 const PANE_STEP = 1.25;
-const PANE_RADIUS = 3.6;
-const PANE_ARC = 0.72;
-const PANE_H = 1.6;
+const PANE_RADIUS = 3.2;
+const PANE_ARC = 1.1;
+const PANE_H = 2.2;
 
 /* Curved plane: a vertical cylinder segment with explicit UVs
    (u runs left-to-right as seen from the camera, no mirroring). */
@@ -378,6 +328,32 @@ function curvedPlaneGeometry(radius: number, arc: number, height: number, segs =
   for (let j = 0; j <= segs; j++) {
     const t = j / segs;
     const theta = (t - 0.5) * arc;
+    const x = Math.sin(theta) * radius;
+    const z = Math.cos(theta) * radius;
+    positions.push(x, -height / 2, z, x, height / 2, z);
+    uvs.push(t, 0, t, 1);
+  }
+  for (let j = 0; j < segs; j++) {
+    const a = j * 2;
+    indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  return geo;
+}
+
+/* Inward-facing room wall: same construction, but centered BEHIND the
+   stage (theta measured from -z) with u running left-to-right as seen
+   from the camera, so wall content is never mirrored. */
+function curvedWallGeometry(radius: number, arc: number, height: number, segs = 96): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let j = 0; j <= segs; j++) {
+    const t = j / segs;
+    const theta = Math.PI - (t - 0.5) * arc;
     const x = Math.sin(theta) * radius;
     const z = Math.cos(theta) * radius;
     positions.push(x, -height / 2, z, x, height / 2, z);
@@ -405,24 +381,37 @@ function drawPaneTexture(
   const H = (canvas.height = 800);
   const ctx = canvas.getContext("2d")!;
 
-  /* glassmorphism: translucent tint — the model and LED wall
-     stay visible straight through the pane */
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = "rgba(14, 16, 24, 0.3)";
-  ctx.fillRect(0, 0, W, H);
 
-  /* the picture plays in the background of the pane */
   if (img && img.naturalWidth > 0) {
+    /* picture pane, alche-style: the photo IS the pane — bright and
+       full-bleed on the curved glass in front of the model */
     const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
     const dw = img.naturalWidth * scale;
     const dh = img.naturalHeight * scale;
     ctx.save();
-    ctx.globalAlpha = 0.58;
+    ctx.globalAlpha = 0.94;
     ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
     ctx.restore();
-    /* gentle darkening so type stays readable */
-    ctx.fillStyle = "rgba(4, 5, 9, 0.3)";
+
+    /* slight bottom grade so the meta stays readable */
+    const grade = ctx.createLinearGradient(0, H, 0, H - 260);
+    grade.addColorStop(0, "rgba(0,0,0,0.4)");
+    grade.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grade;
+    ctx.fillRect(0, H - 260, W, 260);
+  } else {
+    /* no picture yet — frosted glass with the section word */
+    ctx.fillStyle = "rgba(14, 16, 24, 0.3)";
     ctx.fillRect(0, 0, W, H);
+    ctx.font = "900 165px 'Arial Black', Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 2.5;
+    ctx.strokeText(spec.word, W / 2, H / 2 + 10);
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillText(spec.word, W / 2, H / 2 + 10);
   }
 
   /* top-light sheen, like light catching glass */
@@ -448,16 +437,6 @@ function drawPaneTexture(
     ctx.lineTo(W, y + 0.5);
     ctx.stroke();
   }
-
-  /* outlined word, centered */
-  ctx.font = "900 165px 'Arial Black', Arial, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.strokeStyle = "rgba(255,255,255,0.5)";
-  ctx.lineWidth = 2.5;
-  ctx.strokeText(spec.word, W / 2, H / 2 + 10);
-  ctx.fillStyle = "rgba(255,255,255,0.06)";
-  ctx.fillText(spec.word, W / 2, H / 2 + 10);
 
   /* mono meta, top-left */
   ctx.textAlign = "left";
@@ -521,16 +500,15 @@ export function createCrystalHero(
     uAccent: { value: new THREE.Color(0x59e3ff) },
     uGlowA: { value: new THREE.Color(0x2a0b52) },
     uGlowB: { value: new THREE.Color(0x0b0322) },
-    uRes: { value: new THREE.Vector2(2, 2) },
   };
   const bgMat = new THREE.ShaderMaterial({
     uniforms: bgUniforms,
-    depthWrite: false,
-    depthTest: false,
+    side: THREE.DoubleSide,
     vertexShader: BG_VERT,
     fragmentShader: BG_FRAG,
   });
-  const bgQuadGeo = new THREE.PlaneGeometry(2, 2);
+  /* the curved LED wall — real geometry wrapping the whole stage */
+  const bgQuadGeo = curvedWallGeometry(11, 4.35, 14, 96);
   bgScene.add(new THREE.Mesh(bgQuadGeo, bgMat));
 
   const wordmark = buildWordmarkTexture(CONFIG.wordmark);
@@ -549,10 +527,14 @@ export function createCrystalHero(
   function layoutText() {
     const rect = container.getBoundingClientRect();
     const aspect = Math.max(0.2, rect.width) / Math.max(0.2, rect.height);
-    const w = 1.84;
-    const h = (w / wordmark.aspect) * aspect;
-    textMesh.scale.set(w, Math.min(h, 1.9), 1);
-    textMesh.position.set(0, 0.02, -1);
+    /* the bg scene renders with the perspective camera now — size the
+       wordmark plane to ~92% of the visible width at its depth */
+    const dist = CONFIG.cameraZ + 2.6;
+    const visW = 2 * dist * Math.tan(THREE.MathUtils.degToRad(CONFIG.cameraFov / 2)) * aspect;
+    const w = visW * 0.92;
+    const h = w / wordmark.aspect;
+    textMesh.scale.set(w, Math.min(h, 3.4), 1);
+    textMesh.position.set(0, 0.05, -2.6);
   }
 
   /* --- blit quad (draws the bg target to screen) --- */
@@ -709,7 +691,7 @@ export function createCrystalHero(
 
   /* --- about ring: curved glass panes orbiting the model --- */
   const ring = new THREE.Group();
-  ring.position.y = 0.55;
+  ring.position.y = 0.3;
   scene.add(ring);
 
   const paneGeo = curvedPlaneGeometry(PANE_RADIUS, PANE_ARC, PANE_H);
@@ -732,7 +714,7 @@ export function createCrystalHero(
     ring.add(mesh);
     panes.push({ mat, mesh, angle: i * PANE_STEP });
 
-    /* redraw with the portrait once (and if) it loads */
+    /* redraw with the picture once (and if) it loads */
     if (spec.imageUrl) {
       const img = new Image();
       img.onload = () => {
@@ -858,7 +840,6 @@ export function createCrystalHero(
     glassUniforms.uBg.value = bgTarget.texture;
 
     renderer.getDrawingBufferSize(drawSize);
-    bgUniforms.uRes.value.copy(drawSize);
     glassUniforms.uRes.value.copy(drawSize);
 
     const fit = Math.min(1, w / 900);
@@ -866,8 +847,9 @@ export function createCrystalHero(
        ~5.1 * aspect world units and the GLB is fitted to <= 5.2 wide,
        so cap the scale at 0.88 * aspect to keep it fully on screen */
     monogram.scale.setScalar(Math.min(0.6 + fit * 0.16, 0.88 * camera.aspect));
-    /* the pane ring shrinks with the frustum too */
-    ring.scale.setScalar(Math.min(1, 1.22 * camera.aspect));
+    /* the pane ring shrinks with the frustum too — the big front pane
+       must fit portrait screens */
+    ring.scale.setScalar(Math.min(1, 1.02 * camera.aspect));
     layoutText();
   }
 
@@ -941,7 +923,7 @@ export function createCrystalHero(
       if (ang > Math.PI) ang -= Math.PI * 2;
       if (ang < -Math.PI) ang += Math.PI * 2;
       const facing = THREE.MathUtils.clamp(1 - (Math.abs(ang) - 0.62) / 0.85, 0, 1);
-      pane.mat.opacity = facing * 0.96 * smoothScrollP;
+      pane.mat.opacity = facing * 0.98 * smoothScrollP;
       pane.mesh.visible = pane.mat.opacity > 0.01;
     }
 
@@ -963,9 +945,8 @@ export function createCrystalHero(
     camera.lookAt(lookTarget);
 
     /* wordmark parallax — the giant type climbs and fades as about arrives */
-    textMesh.position.y = 0.02 + smoothScrollP * 0.6;
+    textMesh.position.y = 0.05 + smoothScrollP * 1.6;
     textMat.opacity = 1 - smoothScrollP;
-    bgUniforms.uScroll.value = smoothScrollP;
     bgUniforms.uWorld.value = smoothScrollP;
 
     if (handles.quatText) {
@@ -980,7 +961,8 @@ export function createCrystalHero(
     if (bgTarget) {
       renderer.setRenderTarget(bgTarget);
       renderer.clear();
-      renderer.render(bgScene, bgCam);
+      /* the wall is real geometry now — render it with the scene camera */
+      renderer.render(bgScene, camera);
       renderer.setRenderTarget(null);
       renderer.clear();
       renderer.render(blitScene, bgCam);
