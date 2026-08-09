@@ -13,14 +13,26 @@ export type CrystalHeroHandles = {
   coordText?: HTMLElement | null;
 };
 
+export type AboutPaneSpec = {
+  word: string;
+  accent: string;
+  /** optional image drawn faintly behind the word (e.g. a portrait) */
+  imageUrl?: string;
+};
+
 export type CrystalHeroApi = {
   dispose: () => void;
   resetOrientation: () => void;
   setRoughness: (v: number) => void;
   setNoiseScale: (v: number) => void;
   setTint: (hex: string) => void;
-  /** 0..1 — how far the hero has scrolled out of view; drives camera pull, spin & bg dim */
-  setScroll: (p: number) => void;
+  /**
+   * Drive the hero → about handover.
+   * world 0..1 dissolves the glitch wall into the color field (and fades
+   * wordmark/tags, pulls the camera a touch); progress 0..n-1 swings the
+   * curved pane ring; glowA/glowB are the current color-world glows.
+   */
+  setAbout: (world: number, progress: number, glowA: string, glowB: string) => void;
 };
 
 const CONFIG = {
@@ -50,7 +62,10 @@ const BG_FRAG = /* glsl */ `
   precision highp float;
   uniform float uTime;
   uniform float uScroll;
+  uniform float uWorld;
   uniform vec3  uAccent;
+  uniform vec3  uGlowA;
+  uniform vec3  uGlowB;
   uniform vec2  uRes;
 
   float hash(vec2 p){
@@ -131,8 +146,46 @@ const BG_FRAG = /* glsl */ `
     /* subtle centre glow so the glass has something to catch */
     col += mix(vec3(0.03), uAccent * 0.05, 0.4) * smoothstep(0.9, 0.0, length(p));
 
-    /* dim as the hero scrolls away */
+    /* dim as the hero world hands over */
     col *= 1.0 - uScroll * 0.55;
+
+    /* about world: a curved LED screen wrapping the stage —
+       uWorld dissolves the glitch wall into it */
+    vec2 luv = uv - 0.5;
+    /* concave-screen distortion: rows squeeze toward the edges,
+       columns bow slightly — like standing inside a curved LED wall */
+    luv.y *= 1.0 - luv.x * luv.x * 0.5;
+    luv.x *= 1.0 + luv.y * luv.y * 0.14;
+    luv += 0.5;
+
+    /* LED dot matrix */
+    vec2 lgrid = vec2(96.0 * aspect, 54.0);
+    vec2 lcell = floor(luv * lgrid);
+    vec2 lcuv  = fract(luv * lgrid);
+    float dot_ = smoothstep(0.46, 0.16, length(lcuv - 0.5));
+    float lflick = 0.45 + 0.55 * hash(lcell + floor(t * 2.0) * 0.017);
+    vec3 ledTint = mix(uGlowA, uGlowB, clamp(luv.x * 0.6 + luv.y * 0.6 - 0.1, 0.0, 1.0));
+    /* occasional bright accent pixels, like a wall testing its panels */
+    float hot = step(0.995, hash(lcell + floor(t * 1.4) * 0.031 + 3.7));
+
+    vec3 field = vec3(0.012);
+    field += ledTint * 2.3 * dot_ * lflick;
+    field += uAccent * hot * dot_ * 0.5;
+
+    /* LED module seams */
+    float seam = step(fract(luv.y * 6.0), 0.008) + step(fract(luv.x * 10.0), 0.005);
+    field += vec3(0.045) * clamp(seam, 0.0, 1.0);
+
+    /* soft color wash + scanline sweep */
+    field += uGlowA * (1.0 - smoothstep(0.0, 0.8, distance(luv, vec2(0.15, 0.85)))) * 0.4;
+    field += uGlowB * (1.0 - smoothstep(0.0, 0.85, distance(luv, vec2(0.87, 0.10)))) * 0.4;
+    field += ledTint * 1.2 * smoothstep(0.06, 0.0, abs(luv.y - fract(t * 0.06) * 1.3 + 0.15));
+
+    /* curved-screen vignette: edges fall into darkness */
+    field *= 1.0 - 0.7 * smoothstep(0.35, 0.72, length(uv - 0.5));
+    field += (hash(frag + fract(t)*57.0) - 0.5) * 0.02;
+
+    col = mix(col, field, uWorld);
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -308,7 +361,136 @@ function makeLogoGeometry(): THREE.ExtrudeGeometry {
   return geo;
 }
 
-export function createCrystalHero(container: HTMLDivElement, handles: CrystalHeroHandles = {}): CrystalHeroApi {
+/* ------------------------------------------------------------------ */
+/* About ring: curved glass panes orbiting the model                   */
+/* ------------------------------------------------------------------ */
+const PANE_STEP = 1.25;
+const PANE_RADIUS = 3.6;
+const PANE_ARC = 0.72;
+const PANE_H = 1.6;
+
+/* Curved plane: a vertical cylinder segment with explicit UVs
+   (u runs left-to-right as seen from the camera, no mirroring). */
+function curvedPlaneGeometry(radius: number, arc: number, height: number, segs = 48): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let j = 0; j <= segs; j++) {
+    const t = j / segs;
+    const theta = (t - 0.5) * arc;
+    const x = Math.sin(theta) * radius;
+    const z = Math.cos(theta) * radius;
+    positions.push(x, -height / 2, z, x, height / 2, z);
+    uvs.push(t, 0, t, 1);
+  }
+  for (let j = 0; j < segs; j++) {
+    const a = j * 2;
+    indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  return geo;
+}
+
+function drawPaneTexture(
+  canvas: HTMLCanvasElement,
+  spec: AboutPaneSpec,
+  index: number,
+  total: number,
+  img?: HTMLImageElement
+) {
+  const W = (canvas.width = 1280);
+  const H = (canvas.height = 800);
+  const ctx = canvas.getContext("2d")!;
+
+  /* glassmorphism: translucent tint — the model and LED wall
+     stay visible straight through the pane */
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(14, 16, 24, 0.3)";
+  ctx.fillRect(0, 0, W, H);
+
+  /* the picture plays in the background of the pane */
+  if (img && img.naturalWidth > 0) {
+    const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+    const dw = img.naturalWidth * scale;
+    const dh = img.naturalHeight * scale;
+    ctx.save();
+    ctx.globalAlpha = 0.58;
+    ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.restore();
+    /* gentle darkening so type stays readable */
+    ctx.fillStyle = "rgba(4, 5, 9, 0.3)";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* top-light sheen, like light catching glass */
+  const sheen = ctx.createLinearGradient(0, 0, 0, H);
+  sheen.addColorStop(0, "rgba(255,255,255,0.12)");
+  sheen.addColorStop(0.35, "rgba(255,255,255,0.02)");
+  sheen.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, 0, W, H);
+
+  /* faint grid */
+  ctx.strokeStyle = "rgba(255,255,255,0.03)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 80) {
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= H; y += 80) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(W, y + 0.5);
+    ctx.stroke();
+  }
+
+  /* outlined word, centered */
+  ctx.font = "900 165px 'Arial Black', Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.lineWidth = 2.5;
+  ctx.strokeText(spec.word, W / 2, H / 2 + 10);
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillText(spec.word, W / 2, H / 2 + 10);
+
+  /* mono meta, top-left */
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = "400 26px 'Courier New', monospace";
+  ctx.fillStyle = spec.accent;
+  ctx.fillText(`${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`, 64, 84);
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.fillText(spec.word, 64, 122);
+
+  /* accent bar, bottom-left */
+  ctx.fillStyle = spec.accent;
+  ctx.fillRect(64, H - 72, 220, 4);
+
+  /* soft-edge mask: no hard border — the four corners and edges
+     feather out like frosted glass */
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.filter = "blur(26px)";
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  const inset = 42;
+  const r = 90;
+  ctx.roundRect(inset, inset, W - inset * 2, H - inset * 2, r);
+  ctx.fill();
+  ctx.filter = "none";
+  ctx.globalCompositeOperation = "source-over";
+}
+
+export function createCrystalHero(
+  container: HTMLDivElement,
+  handles: CrystalHeroHandles = {},
+  paneSpecs: AboutPaneSpec[] = []
+): CrystalHeroApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setClearColor(0x000000, 1);
   // shader values are authored as final output — skip the sRGB re-encode
@@ -335,7 +517,10 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   const bgUniforms = {
     uTime: { value: 0 },
     uScroll: { value: 0 },
+    uWorld: { value: 0 },
     uAccent: { value: new THREE.Color(0x59e3ff) },
+    uGlowA: { value: new THREE.Color(0x2a0b52) },
+    uGlowB: { value: new THREE.Color(0x0b0322) },
     uRes: { value: new THREE.Vector2(2, 2) },
   };
   const bgMat = new THREE.ShaderMaterial({
@@ -522,7 +707,44 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
   });
   scene.add(tagGroup);
 
-  /* --- scroll state (0 = hero fully in view, 1 = scrolled past) --- */
+  /* --- about ring: curved glass panes orbiting the model --- */
+  const ring = new THREE.Group();
+  ring.position.y = 0.55;
+  scene.add(ring);
+
+  const paneGeo = curvedPlaneGeometry(PANE_RADIUS, PANE_ARC, PANE_H);
+  const panes: { mat: THREE.MeshBasicMaterial; mesh: THREE.Mesh; angle: number }[] = [];
+  paneSpecs.forEach((spec, i) => {
+    const canvas = document.createElement("canvas");
+    drawPaneTexture(canvas, spec, i, paneSpecs.length);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = 4;
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(paneGeo, mat);
+    mesh.rotation.y = i * PANE_STEP;
+    mesh.visible = false;
+    ring.add(mesh);
+    panes.push({ mat, mesh, angle: i * PANE_STEP });
+
+    /* redraw with the portrait once (and if) it loads */
+    if (spec.imageUrl) {
+      const img = new Image();
+      img.onload = () => {
+        drawPaneTexture(canvas, spec, i, paneSpecs.length, img);
+        tex.needsUpdate = true;
+      };
+      img.src = spec.imageUrl;
+    }
+  });
+  let ringTarget = 0;
+
+  /* --- scroll state (0 = hero world, 1 = about world) --- */
   let scrollP = 0;
   let smoothScrollP = 0;
   const scrollQuat = new THREE.Quaternion();
@@ -644,6 +866,8 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
        ~5.1 * aspect world units and the GLB is fitted to <= 5.2 wide,
        so cap the scale at 0.88 * aspect to keep it fully on screen */
     monogram.scale.setScalar(Math.min(0.6 + fit * 0.16, 0.88 * camera.aspect));
+    /* the pane ring shrinks with the frustum too */
+    ring.scale.setScalar(Math.min(1, 1.22 * camera.aspect));
     layoutText();
   }
 
@@ -707,7 +931,19 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     d2.rotation.y = THREE.MathUtils.clamp(-(tilt.vy + drag.velYaw * 0.5) * 0.045, -0.09, 0.09);
 
     monogram.position.y =
-      0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude + smoothScrollP * 0.9;
+      0.12 + Math.sin(t * CONFIG.bobSpeed) * CONFIG.bobAmplitude + smoothScrollP * 0.5;
+
+    /* about ring eases toward the scroll target; panes fade by facing
+       angle, gated by how far into the about world we are */
+    ring.rotation.y += (ringTarget - ring.rotation.y) * 0.09;
+    for (const pane of panes) {
+      let ang = (pane.angle + ring.rotation.y) % (Math.PI * 2);
+      if (ang > Math.PI) ang -= Math.PI * 2;
+      if (ang < -Math.PI) ang += Math.PI * 2;
+      const facing = THREE.MathUtils.clamp(1 - (Math.abs(ang) - 0.62) / 0.85, 0, 1);
+      pane.mat.opacity = facing * 0.96 * smoothScrollP;
+      pane.mesh.visible = pane.mat.opacity > 0.01;
+    }
 
     /* code tags: slow elliptical orbit + bob + flicker, fading on scroll */
     for (const ts of tagStates) {
@@ -726,9 +962,11 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     camera.position.z = baseCameraPos.z + smoothScrollP * 2.4;
     camera.lookAt(lookTarget);
 
-    /* wordmark parallax — the giant type climbs faster than the glass */
+    /* wordmark parallax — the giant type climbs and fades as about arrives */
     textMesh.position.y = 0.02 + smoothScrollP * 0.6;
+    textMat.opacity = 1 - smoothScrollP;
     bgUniforms.uScroll.value = smoothScrollP;
+    bgUniforms.uWorld.value = smoothScrollP;
 
     if (handles.quatText) {
       const q = monogram.quaternion;
@@ -784,8 +1022,11 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     glassUniforms.uTint.value.set(hex);
   }
 
-  function setScroll(p: number) {
-    scrollP = THREE.MathUtils.clamp(p, 0, 1);
+  function setAbout(world: number, progress: number, glowA: string, glowB: string) {
+    scrollP = THREE.MathUtils.clamp(world, 0, 1);
+    ringTarget = -progress * PANE_STEP;
+    bgUniforms.uGlowA.value.set(glowA);
+    bgUniforms.uGlowB.value.set(glowB);
   }
 
   function dispose() {
@@ -815,11 +1056,16 @@ export function createCrystalHero(container: HTMLDivElement, handles: CrystalHer
     blitMat.dispose();
     dGeo.dispose();
     glassMat.dispose();
+    paneGeo.dispose();
+    for (const pane of panes) {
+      pane.mat.map?.dispose();
+      pane.mat.dispose();
+    }
     renderer.dispose();
     if (renderer.domElement.parentNode === container) {
       container.removeChild(renderer.domElement);
     }
   }
 
-  return { dispose, resetOrientation, setRoughness, setNoiseScale, setTint, setScroll };
+  return { dispose, resetOrientation, setRoughness, setNoiseScale, setTint, setAbout };
 }
