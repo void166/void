@@ -218,7 +218,8 @@ export default function HeroAboutStage() {
       /* u counts panel-units past the hero: dissolve is [0, dissolveSpan] */
       const u = Math.max(0, (p - heroFrac) / (1 - heroFrac)) * (dissolveSpan + segments);
       const world = smooth(u, 0, dissolveSpan);
-      const global = Math.min(0.99999, Math.max(0, u - dissolveSpan));
+      /* clamp just under `segments` (NOT 1) — all panels must play out */
+      const global = Math.min(segments - 0.00001, Math.max(0, u - dissolveSpan));
       const i = Math.min(segments - 1, Math.floor(global));
       const tt = shapeSegment(global - i);
       const a = panels[i];

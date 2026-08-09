@@ -5,7 +5,7 @@ export const profile = {
   role: "Full-Stack Developer",
   location: "Ulaanbaatar, Mongolia",
   email: "rekihhhrenchin@gmail.com",
-  availability: "Full-Stack Developer @ DDAM",
+  availability: "Full-Stack Developer",
   tagline: "I build fast, expressive web products — end to end.",
   bio: "Full-stack developer at DDAM (Dentsu Data Artist Mongol), building data-driven products end to end — clean APIs, sharp interfaces, and the occasional WebGL fever dream. I learn in public and move quickly.",
   work: {
