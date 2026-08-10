@@ -5,6 +5,8 @@ export type WorksApi = {
   dispose: () => void;
   /** 0..1 across the whole pinned sequence */
   setProgress: (p: number) => void;
+  /** 0..1 while the section scrolls into view — LED wall powers up, card emerges */
+  setArrival: (a: number) => void;
   /** pointer in -1..1 (x right, y down) */
   setPointer: (x: number, y: number) => void;
 };
@@ -140,6 +142,7 @@ const TRANS_FRAG = /* glsl */ `
   uniform float uT;     /* shaped 0..1 transition */
   uniform float uTime;
   uniform vec2 uGrid;   /* LED wall pixel pitch (cols, rows) */
+  uniform float uArrive; /* 0..1 — the wall powers up as the section arrives */
   ${NOISE_GLSL}
 
   vec3 blurSample(sampler2D tex, vec2 uv, float r){
@@ -185,6 +188,10 @@ const TRANS_FRAG = /* glsl */ `
     float emit = smoothstep(0.5, 0.34, px);
     col = col * (0.12 + 1.15 * emit) + col * 0.08;
 
+    /* power-up: panels wake row by row as the section arrives */
+    float wake = smoothstep(vUv.y - 0.25, vUv.y + 0.05, uArrive * 1.3);
+    col *= 0.04 + 0.96 * wake;
+
     /* vignette + grain */
     float r2 = dot(vUv - 0.5, vUv - 0.5);
     col *= 1.0 - r2 * 1.35;
@@ -222,12 +229,6 @@ const PLANE_FRAG = /* glsl */ `
     uv = 0.5 + c * (1.0 + dot(c, c) * 0.35 * uWarp);
     uv += (vec2(noise(uv * 7.0 + uTime), noise(uv * 7.0 - uTime)) - 0.5) * 0.035 * uWarp;
 
-    /* crisp at rest — blur only while the plane is in motion */
-    float r = uBlur * 0.012;
-    vec3 col = texture2D(uTex, uv).rgb * 0.5;
-    col += texture2D(uTex, uv + vec2(r, 0.0)).rgb * 0.25;
-    col += texture2D(uTex, uv - vec2(r, 0.0)).rgb * 0.25;
-
     /* borderless glass card: rounded corners via rounded-rect SDF,
        crisp ~1px edge instead of a soft feather */
     float aspect = 1.7778;
@@ -237,10 +238,29 @@ const PLANE_FRAG = /* glsl */ `
     float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - rad;
     float alpha = smoothstep(0.0018, -0.0018, d);
 
-    /* glass body: soft top-left gloss + faint glow hugging the inside edge */
+    /* thick beveled rim: the video bends inward through the glass edge,
+       with a chromatic split — the center stays untouched and crisp */
+    float bev = smoothstep(-0.09, 0.0, d);
+    float bend = bev * bev * 0.045;
+    vec2 dirOut = normalize(p + vec2(1e-5));
+    vec2 dirUv = dirOut * vec2(1.0 / aspect, 1.0);
+
+    float r = uBlur * 0.012;
+    vec3 col;
+    col.r = texture2D(uTex, uv - dirUv * bend * 1.25).r * 0.5
+          + texture2D(uTex, uv - dirUv * bend * 1.25 + vec2(r, 0.0)).r * 0.25
+          + texture2D(uTex, uv - dirUv * bend * 1.25 - vec2(r, 0.0)).r * 0.25;
+    col.g = texture2D(uTex, uv - dirUv * bend).g * 0.5
+          + texture2D(uTex, uv - dirUv * bend + vec2(r, 0.0)).g * 0.25
+          + texture2D(uTex, uv - dirUv * bend - vec2(r, 0.0)).g * 0.25;
+    col.b = texture2D(uTex, uv - dirUv * bend * 0.75).b * 0.5
+          + texture2D(uTex, uv - dirUv * bend * 0.75 + vec2(r, 0.0)).b * 0.25
+          + texture2D(uTex, uv - dirUv * bend * 0.75 - vec2(r, 0.0)).b * 0.25;
+
+    /* glass body: soft top-left gloss + glow hugging the inside edge */
     float gloss = smoothstep(0.2, 1.0, uv.y * 0.75 + (1.0 - uv.x) * 0.25);
     col += vec3(gloss) * 0.05;
-    col += vec3(1.0) * smoothstep(-0.045, 0.0, d) * 0.06;
+    col += vec3(1.0) * smoothstep(-0.045, 0.0, d) * 0.07;
 
     /* slow diagonal sheen drifting across the card */
     float band = uv.x * 0.85 + uv.y * 0.35;
@@ -248,9 +268,11 @@ const PLANE_FRAG = /* glsl */ `
     float sheen = exp(-pow((band - sPos) * 8.0, 2.0));
     col += vec3(sheen) * 0.10;
 
-    /* crisp hairline at the very edge, brighter on the lit top edge */
+    /* iridescent hairline: a thin rim whose hue drifts around the card */
     float hair = smoothstep(0.005, 0.0005, abs(d));
-    col += vec3(1.0) * hair * (0.12 + 0.16 * smoothstep(0.0, 0.45, p.y));
+    float ang = atan(p.y, p.x);
+    vec3 iri = 0.5 + 0.5 * cos(6.2831 * (ang / 6.2831 + uTime * 0.05 + vec3(0.0, 0.33, 0.67)));
+    col += (vec3(0.10) + iri * 0.14) * hair * (1.0 + 0.9 * smoothstep(0.0, 0.45, p.y));
 
     gl_FragColor = vec4(col, uOpacity * alpha);
   }
@@ -515,6 +537,7 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     uT: { value: 0 },
     uTime: { value: 0 },
     uGrid: { value: new THREE.Vector2(160, 90) },
+    uArrive: { value: 0 },
   };
   const transMat = new THREE.ShaderMaterial({
     uniforms: transUniforms,
@@ -584,6 +607,8 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   /* --- state --- */
   let progress = 0;
   let smoothProgress = 0;
+  let arrival = 0;
+  let smoothArrival = 0;
   const pointer = { x: 0, y: 0 };
   const smoothPointer = { x: 0, y: 0 };
   let rtAIndex = -1;
@@ -629,6 +654,7 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     const t = timer.getElapsed();
 
     smoothProgress += (progress - smoothProgress) * 0.16;
+    smoothArrival += (arrival - smoothArrival) * 0.14;
     smoothPointer.x += (pointer.x - smoothPointer.x) * 0.06;
     smoothPointer.y += (pointer.y - smoothPointer.y) * 0.06;
 
@@ -649,14 +675,19 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
       renderVisual(rtBIndex, visRTB, t * 0.9 + 7.0);
     }
 
+    /* arrival: the card rises out of depth while the wall powers up */
+    const arIn = 1 - smoothArrival;
+
     /* outgoing plane: pushes past the camera, exits decisively */
-    planeCur.position.z = tt * 3.2;
+    planeCur.position.z = tt * 3.2 - arIn * 2.6;
     planeCur.position.x = -tt * 2.3;
-    planeCur.position.y = tt * 0.4 + Math.sin(t * 0.5) * 0.03;
+    planeCur.position.y = tt * 0.4 - arIn * 0.9 + Math.sin(t * 0.5) * 0.03;
     planeCur.rotation.y = -tt * 0.5 + smoothPointer.x * 0.03;
-    planeCur.rotation.x = tt * 0.1 - smoothPointer.y * 0.02;
-    curUniforms.uOpacity.value = 1 - THREE.MathUtils.smoothstep(tt, 0.35, 0.8);
-    curUniforms.uBlur.value = tt * 1.6;
+    planeCur.rotation.x = tt * 0.1 + arIn * 0.3 - smoothPointer.y * 0.02;
+    curUniforms.uOpacity.value =
+      (1 - THREE.MathUtils.smoothstep(tt, 0.35, 0.8)) *
+      THREE.MathUtils.smoothstep(smoothArrival, 0.1, 0.85);
+    curUniforms.uBlur.value = tt * 1.6 + arIn * 1.2;
     curUniforms.uWarp.value = arc;
     curUniforms.uTime.value = t;
 
@@ -687,6 +718,7 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     /* passes */
     transUniforms.uT.value = tt;
     transUniforms.uTime.value = t;
+    transUniforms.uArrive.value = smoothArrival;
     glassUniforms.uTime.value = t;
 
     if (bgRT) {
@@ -727,6 +759,9 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
 
   function setProgress(p: number) {
     progress = THREE.MathUtils.clamp(p, 0, 1);
+  }
+  function setArrival(a: number) {
+    arrival = THREE.MathUtils.clamp(a, 0, 1);
   }
   function setPointer(x: number, y: number) {
     pointer.x = THREE.MathUtils.clamp(x, -1, 1);
@@ -773,5 +808,5 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     }
   }
 
-  return { dispose, setProgress, setPointer };
+  return { dispose, setProgress, setArrival, setPointer };
 }

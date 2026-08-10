@@ -121,6 +121,23 @@ export default function WorksShowcase() {
       },
     });
 
+    /* arrival: about hands off directly — the stage powers up in place
+       (LED wall wakes, card rises from depth) instead of a hard slide-in */
+    if (titleCurRef.current) gsap.set(titleCurRef.current, { opacity: 0, y: 70 });
+    const arrive = ScrollTrigger.create({
+      trigger: section,
+      start: "top bottom",
+      end: "top top",
+      scrub: true,
+      onUpdate: (self) => {
+        const a = self.progress;
+        apiRef.current?.setArrival(a);
+        if (titleCurRef.current) {
+          gsap.set(titleCurRef.current, { opacity: a * a, y: (1 - a) * 70 });
+        }
+      },
+    });
+
     /* subtle mouse influence + custom cursor — hover devices only */
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     const onMove = (e: PointerEvent) => {
@@ -151,6 +168,7 @@ export default function WorksShowcase() {
 
     return () => {
       st.kill();
+      arrive.kill();
       sticky.removeEventListener("pointermove", onMove);
       sticky.removeEventListener("pointerleave", onLeave);
       sticky.removeEventListener("pointerenter", onEnter);
@@ -209,6 +227,16 @@ export default function WorksShowcase() {
         {/* WebGL stage */}
         <div ref={canvasHostRef} className="absolute inset-0" />
 
+        {/* readability scrim over the lower stage */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%]"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 45%, transparent 100%)",
+          }}
+          aria-hidden
+        />
+
         {/* ------- DOM overlay ------- */}
         {/* section label — below the sticky site header */}
         <div className="eyebrow pointer-events-none absolute left-6 top-24 flex items-center gap-3 text-mist sm:left-10">
@@ -238,6 +266,7 @@ export default function WorksShowcase() {
 
         {/* current project meta */}
         <div ref={titleCurRef} className="absolute bottom-14 left-6 right-6 max-w-xl will-change-transform sm:bottom-16 sm:left-10 sm:right-auto">
+          <TextBackdrop />
           <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">
             {cur.category} · {cur.year}
           </div>
@@ -253,6 +282,7 @@ export default function WorksShowcase() {
           ref={titleNextRef}
           className="pointer-events-none absolute bottom-14 left-6 right-6 max-w-xl opacity-0 will-change-transform sm:bottom-16 sm:left-10 sm:right-auto"
         >
+          <TextBackdrop />
           <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">
             {nxt.category} · {nxt.year}
           </div>
@@ -285,6 +315,24 @@ export default function WorksShowcase() {
 function smooth(t: number, a: number, b: number) {
   const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
   return x * x * (3 - 2 * x);
+}
+
+/* feathered backdrop blur that rides with the project text — softens the
+   LED wall behind the type without drawing a visible box */
+function TextBackdrop() {
+  const mask =
+    "radial-gradient(90% 95% at 35% 55%, black 40%, transparent 98%)";
+  return (
+    <div
+      className="pointer-events-none absolute -inset-x-10 -inset-y-8 -z-10 backdrop-blur-md"
+      style={{
+        background: "rgba(2,2,2,0.28)",
+        maskImage: mask,
+        WebkitMaskImage: mask,
+      }}
+      aria-hidden
+    />
+  );
 }
 
 /* View-project link with a subtle magnetic pull */

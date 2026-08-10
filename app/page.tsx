@@ -9,10 +9,10 @@ export default function Home() {
       {/* 01+02 — one continuous stage: glass hero dissolving into about */}
       <HeroAboutStage />
 
-      <Marquee items={["React", "Node.js", "Three.js", "TypeScript", "Next.js"]} />
-
-      {/* 03 — cinematic project exhibition */}
+      {/* 03 — cinematic project exhibition, handed off directly from about */}
       <WorksShowcase />
+
+      <Marquee items={["React", "Node.js", "Three.js", "TypeScript", "Next.js"]} />
 
       {/* 04 — contact finale */}
       <ContactFinale />
