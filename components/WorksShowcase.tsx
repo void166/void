@@ -54,6 +54,9 @@ export default function WorksShowcase() {
     gsap.registerPlugin(ScrollTrigger);
     ScrollTrigger.config({ ignoreMobileResize: true });
     const segments = works.length - 1;
+    /* transitions finish at SEQ; the tail is a hold on the last project so
+       the section can unpin calmly instead of cutting mid-motion */
+    const SEQ = 0.85;
     let lastShown = 0;
     let lastSegment = 0;
 
@@ -62,8 +65,15 @@ export default function WorksShowcase() {
       start: "top top",
       end: "bottom bottom",
       scrub: true,
+      /* settle on whichever project is past the halfway point */
+      snap: {
+        snapTo: [...Array.from({ length: segments + 1 }, (_, k) => (k / segments) * SEQ), 1],
+        duration: { min: 0.25, max: 0.65 },
+        ease: "power2.inOut",
+        delay: 0.08,
+      },
       onUpdate: (self) => {
-        const p = self.progress;
+        const p = Math.min(1, self.progress / SEQ);
         apiRef.current?.setProgress(p);
 
         const global = Math.min(0.99999, p) * segments;

@@ -279,11 +279,26 @@ export default function HeroAboutStage() {
 
     apply(0);
 
+    /* resting states: hero, then each fully-settled panel — snap to
+       whichever side of the midpoint the user released the scroll on */
+    const snapPoints = [
+      0,
+      ...Array.from({ length: segments + 1 }, (_, k) =>
+        heroFrac + ((1 - heroFrac) * (dissolveSpan + k)) / (dissolveSpan + segments)
+      ),
+    ];
+
     const st = ScrollTrigger.create({
       trigger: section,
       start: "top top",
       end: "bottom bottom",
       scrub: true,
+      snap: {
+        snapTo: snapPoints,
+        duration: { min: 0.25, max: 0.65 },
+        ease: "power2.inOut",
+        delay: 0.08,
+      },
       onUpdate: (self) => apply(self.progress),
     });
 

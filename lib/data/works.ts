@@ -24,14 +24,14 @@ export type Work = {
 
 export const works: Work[] = [
   {
-    slug: "kinetic-hero",
-    title: "Kinetic Hero",
-    category: "Web Motion Design",
+    slug: "dental-blu",
+    title: "Dental Blu",
+    category: "Healthcare / Web",
     year: "2026",
     description:
-      "An animated hero-section system — typography, light, and motion engineered for first-impression impact.",
+      "A clinic experience built on calm — clean typography, soft motion, and a booking flow that feels effortless.",
     href: "#",
-    media: { type: "image", src: "/works/kinetic-hero.webp" },
+    media: { type: "video", src: "/works/dentalblu.mp4" },
     visual: { pattern: 0, seed: 11.3, colA: "#59e3ff", colB: "#1b4fff", colC: "#030b18" },
   },
   {

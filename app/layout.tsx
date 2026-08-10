@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ScrollFX from "@/components/ScrollFX";
+import SectionRail from "@/components/SectionRail";
 import SplashScreen from "@/components/SplashScreen";
 import "./globals.css";
 
@@ -38,6 +39,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Footer />
         {/* scroll progress bar + site-wide scroll reveals */}
         <ScrollFX />
+        {/* left-edge ruler: you-are-here section indicator */}
+        <SectionRail />
         {/* CRT texture over everything */}
         <div className="scanlines-fixed" aria-hidden />
       </body>

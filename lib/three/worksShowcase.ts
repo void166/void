@@ -139,6 +139,7 @@ const TRANS_FRAG = /* glsl */ `
   uniform sampler2D uTexB;
   uniform float uT;     /* shaped 0..1 transition */
   uniform float uTime;
+  uniform vec2 uGrid;   /* LED wall pixel pitch (cols, rows) */
   ${NOISE_GLSL}
 
   vec3 blurSample(sampler2D tex, vec2 uv, float r){
@@ -151,7 +152,8 @@ const TRANS_FRAG = /* glsl */ `
   }
 
   void main(){
-    vec2 uv = vUv;
+    /* LED wall: all content is sampled at the emitter centers */
+    vec2 uv = (floor(vUv * uGrid) + 0.5) / uGrid;
     float n = fbm(uv * 3.0 + uTime * 0.05);
 
     /* outgoing: zoom in, drift left, blur up */
@@ -172,11 +174,19 @@ const TRANS_FRAG = /* glsl */ `
     m = 1.0 - m;                       /* uT=0 -> show A everywhere */
     vec3 col = mix(a, b, m);
 
-    /* environment treatment: darker + slightly desaturated + vignette */
-    col *= 0.52;
+    /* environment treatment: darker + slightly desaturated */
+    col *= 0.6;
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     col = mix(col, vec3(lum), 0.22);
-    float r2 = dot(uv - 0.5, uv - 0.5);
+
+    /* LED emitters: square pixels with dark pitch gaps + faint panel bloom */
+    vec2 f = fract(vUv * uGrid) - 0.5;
+    float px = max(abs(f.x), abs(f.y));
+    float emit = smoothstep(0.5, 0.34, px);
+    col = col * (0.12 + 1.15 * emit) + col * 0.08;
+
+    /* vignette + grain */
+    float r2 = dot(vUv - 0.5, vUv - 0.5);
     col *= 1.0 - r2 * 1.35;
     col += (hash(gl_FragCoord.xy + fract(uTime) * 91.0) - 0.5) * 0.03;
 
@@ -212,19 +222,37 @@ const PLANE_FRAG = /* glsl */ `
     uv = 0.5 + c * (1.0 + dot(c, c) * 0.35 * uWarp);
     uv += (vec2(noise(uv * 7.0 + uTime), noise(uv * 7.0 - uTime)) - 0.5) * 0.035 * uWarp;
 
-    float r = 0.002 + uBlur * 0.012;
+    /* crisp at rest — blur only while the plane is in motion */
+    float r = uBlur * 0.012;
     vec3 col = texture2D(uTex, uv).rgb * 0.5;
     col += texture2D(uTex, uv + vec2(r, 0.0)).rgb * 0.25;
     col += texture2D(uTex, uv - vec2(r, 0.0)).rgb * 0.25;
 
-    /* faint scanlines keep it in the site's CRT world */
-    col *= 0.96 + 0.04 * sin(uv.y * 700.0);
+    /* borderless glass card: rounded corners via rounded-rect SDF,
+       crisp ~1px edge instead of a soft feather */
+    float aspect = 1.7778;
+    vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
+    float rad = 0.07;
+    vec2 q = abs(p) - (vec2(aspect, 1.0) * 0.5 - rad);
+    float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - rad;
+    float alpha = smoothstep(0.0018, -0.0018, d);
 
-    /* soft edge falloff so it reads as an object, not a crop */
-    vec2 e = smoothstep(0.0, 0.015, uv) * smoothstep(1.0, 0.985, uv);
-    float edge = e.x * e.y;
+    /* glass body: soft top-left gloss + faint glow hugging the inside edge */
+    float gloss = smoothstep(0.2, 1.0, uv.y * 0.75 + (1.0 - uv.x) * 0.25);
+    col += vec3(gloss) * 0.05;
+    col += vec3(1.0) * smoothstep(-0.045, 0.0, d) * 0.06;
 
-    gl_FragColor = vec4(col, uOpacity * edge);
+    /* slow diagonal sheen drifting across the card */
+    float band = uv.x * 0.85 + uv.y * 0.35;
+    float sPos = fract(uTime * 0.05) * 2.4 - 0.7;
+    float sheen = exp(-pow((band - sPos) * 8.0, 2.0));
+    col += vec3(sheen) * 0.10;
+
+    /* crisp hairline at the very edge, brighter on the lit top edge */
+    float hair = smoothstep(0.005, 0.0005, abs(d));
+    col += vec3(1.0) * hair * (0.12 + 0.16 * smoothstep(0.0, 0.45, p.y));
+
+    gl_FragColor = vec4(col, uOpacity * alpha);
   }
 `;
 
@@ -259,17 +287,22 @@ const GLASS_FRAG = /* glsl */ `
     vec3 v = normalize(vView);
     float ndv = clamp(dot(n, v), 0.0, 1.0);
 
-    vec2 off = n.xy * 0.10;
-    off += (noise(vWorld.xy * 5.0 + vWorld.z * 2.0) - 0.5) * 0.02;
+    /* refraction strength follows the surface tilt — the bulge's flat
+       center leaves the media crisp, the curved rim bends and shines */
+    /* optically clean face: the media reads crisp through the glass;
+       refraction, dispersion and shine all live on the curved rim only */
+    float rim = pow(1.0 - ndv, 2.2);
 
-    float disp = 0.018;
+    vec2 off = n.xy * (0.012 + rim * 0.06);
+    off += (noise(vWorld.xy * 5.0 + vWorld.z * 2.0) - 0.5) * 0.012 * rim;
+
+    float disp = 0.004 + rim * 0.03;
     vec3 col;
     col.r = texture2D(uBg, clamp(suv + off * (1.0 + disp), 0.001, 0.999)).r;
     col.g = texture2D(uBg, clamp(suv + off, 0.001, 0.999)).g;
     col.b = texture2D(uBg, clamp(suv + off * (1.0 - disp), 0.001, 0.999)).b;
 
-    float fres = pow(1.0 - ndv, 2.6);
-    col = col * (1.35 + fres * 0.8) + vec3(1.0) * fres * 0.6;
+    col = col * (1.0 + rim * 0.55) + vec3(1.0) * rim * 0.4;
 
     vec3 l1 = normalize(vec3(0.5, 0.85, 0.45));
     vec3 rf = reflect(-v, n);
@@ -320,8 +353,8 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   const drawSize = new THREE.Vector2();
 
   /* --- project-visual render targets (fixed res, cheap) --- */
-  const VIS_W = 1024;
-  const VIS_H = 576;
+  const VIS_W = 1920;
+  const VIS_H = 1080;
   const mkVisRT = () =>
     new THREE.WebGLRenderTarget(VIS_W, VIS_H, {
       minFilter: THREE.LinearFilter,
@@ -417,8 +450,8 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
         const canvas = document.createElement("canvas");
         const w0 = img.naturalWidth || 1024;
         const h0 = img.naturalHeight || 576;
-        canvas.width = 1024;
-        canvas.height = Math.max(2, Math.round((1024 * h0) / w0));
+        canvas.width = 1920;
+        canvas.height = Math.max(2, Math.round((1920 * h0) / w0));
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -481,6 +514,7 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     uTexB: { value: visRTB.texture as THREE.Texture },
     uT: { value: 0 },
     uTime: { value: 0 },
+    uGrid: { value: new THREE.Vector2(160, 90) },
   };
   const transMat = new THREE.ShaderMaterial({
     uniforms: transUniforms,
@@ -536,9 +570,6 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     vertexShader: GLASS_VERT,
     fragmentShader: GLASS_FRAG,
   });
-  const frame = new THREE.Mesh(frameGeometry(3.9, 2.36, 0.24, 0.16), glassMat);
-  frame.renderOrder = 2;
-  scene.add(frame);
 
   /* floating glass shards for depth */
   const shardGeo = frameGeometry(0.9, 0.62, 0.1, 0.08);
@@ -577,7 +608,10 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     blitMat.needsUpdate = true;
     glassUniforms.uBg.value = bgRT.texture;
     glassUniforms.uRes.value.copy(drawSize);
-    /* fit: keep the frame comfortably inside narrow viewports */
+    /* LED wall pitch: fixed row count, square-ish emitters */
+    const rows = 150;
+    transUniforms.uGrid.value.set(Math.max(16, Math.round(rows * (w / h))), rows);
+    /* fit: keep the card comfortably inside narrow viewports */
     const fit = Math.min(1, (w / h) / 1.55);
     scene.scale.setScalar(0.82 + fit * 0.18);
   }
@@ -586,9 +620,11 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   resize();
 
   let rafId = 0;
+  let running = true;
   const timer = new THREE.Timer();
 
   function frameLoop() {
+    if (!running) return;
     timer.update();
     const t = timer.getElapsed();
 
@@ -637,12 +673,6 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     nextUniforms.uWarp.value = arc * 0.7;
     nextUniforms.uTime.value = t;
 
-    /* glass portal: repositioned like a physical object mid-transition */
-    frame.rotation.y = Math.sin(tt * Math.PI * 2.0) * -0.14 + smoothPointer.x * 0.06;
-    frame.rotation.x = arc * 0.05 - smoothPointer.y * 0.045;
-    frame.position.z = arc * 0.5;
-    frame.position.y = Math.sin(t * 0.5) * 0.04;
-
     shard1.rotation.y += 0.0012;
     shard2.rotation.y -= 0.0009;
     shard1.position.y = 1.35 + Math.sin(t * 0.4) * 0.08;
@@ -673,6 +703,28 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   }
   rafId = requestAnimationFrame(frameLoop);
 
+  /* render + decode only while the section is on screen — offscreen it costs nothing */
+  const visibility = new IntersectionObserver(
+    ([entry]) => {
+      const onScreen = entry.isIntersecting;
+      if (onScreen && !running) {
+        running = true;
+        timer.update(); // swallow the paused gap so smoothing doesn't jump
+        rafId = requestAnimationFrame(frameLoop);
+      } else if (!onScreen && running) {
+        running = false;
+        cancelAnimationFrame(rafId);
+      }
+      media.forEach((m) => {
+        if (!m?.video || !m.ready) return;
+        if (onScreen) m.video.play().catch(() => {});
+        else m.video.pause();
+      });
+    },
+    { rootMargin: "200px 0px" }
+  );
+  visibility.observe(container);
+
   function setProgress(p: number) {
     progress = THREE.MathUtils.clamp(p, 0, 1);
   }
@@ -682,7 +734,9 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   }
 
   function dispose() {
+    running = false;
     cancelAnimationFrame(rafId);
+    visibility.disconnect();
     timer.dispose();
     resizeObserver.disconnect();
     media.forEach((m) => {
@@ -711,7 +765,6 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     planeGeo.dispose();
     (planeCur.material as THREE.Material).dispose();
     (planeNext.material as THREE.Material).dispose();
-    frame.geometry.dispose();
     shardGeo.dispose();
     glassMat.dispose();
     renderer.dispose();

@@ -858,9 +858,11 @@ export function createCrystalHero(
   resize();
 
   let rafId = 0;
+  let running = true;
   const timer = new THREE.Timer();
 
   function frame() {
+    if (!running) return;
     timer.update();
     const dt = Math.min(timer.getDelta(), 0.05);
     const t = timer.getElapsed();
@@ -978,6 +980,23 @@ export function createCrystalHero(
 
   rafId = requestAnimationFrame(frame);
 
+  /* pause the whole scene while the hero is scrolled out of view */
+  const visibility = new IntersectionObserver(
+    ([entry]) => {
+      const onScreen = entry.isIntersecting;
+      if (onScreen && !running) {
+        running = true;
+        timer.update(); // swallow the paused gap so dt stays sane
+        rafId = requestAnimationFrame(frame);
+      } else if (!onScreen && running) {
+        running = false;
+        cancelAnimationFrame(rafId);
+      }
+    },
+    { rootMargin: "200px 0px" }
+  );
+  visibility.observe(container);
+
   function resetOrientation() {
     pointer.x = 0;
     pointer.y = 0;
@@ -1012,7 +1031,9 @@ export function createCrystalHero(
   }
 
   function dispose() {
+    running = false;
     cancelAnimationFrame(rafId);
+    visibility.disconnect();
     timer.dispose();
     resizeObserver.disconnect();
     container.removeEventListener("pointermove", onPointerMove);
