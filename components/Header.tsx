@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { primaryNav } from "@/lib/nav";
 import { profile } from "@/lib/data/profile";
+import { handleAnchorClick } from "@/lib/smoothScroll";
 
 export default function Header() {
   const pathname = usePathname();
@@ -33,6 +34,7 @@ export default function Header() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={(e) => handleAnchorClick(e, item.href)}
               className={`font-mono text-[13px] tracking-[0.14em] transition-colors ${
                 pathname === item.href ? "text-paper" : "text-mist hover:text-paper"
               }`}
@@ -45,6 +47,7 @@ export default function Header() {
         <div className="hidden lg:block">
           <Link
             href="/#contact"
+            onClick={(e) => handleAnchorClick(e, "/#contact")}
             className="rounded-full border border-line-strong px-5 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-paper transition-colors hover:border-accent hover:text-accent"
           >
             Contact / Hire Me
@@ -75,13 +78,23 @@ export default function Header() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
+                onClick={(e) => {
+                  setMobileOpen(false);
+                  handleAnchorClick(e, item.href);
+                }}
                 className="block px-3 py-2.5 font-mono text-sm tracking-[0.1em] text-paper hover:text-accent"
               >
                 {item.label}
               </Link>
             ))}
-            <Link href="/#contact" onClick={() => setMobileOpen(false)} className="btn-solid mt-3 text-center">
+            <Link
+              href="/#contact"
+              onClick={(e) => {
+                setMobileOpen(false);
+                handleAnchorClick(e, "/#contact");
+              }}
+              className="btn-solid mt-3 text-center"
+            >
               Contact / Hire Me
             </Link>
           </nav>

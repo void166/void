@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { legalNav, primaryNav } from "@/lib/nav";
 import { profile } from "@/lib/data/profile";
+import { handleAnchorClick } from "@/lib/smoothScroll";
 import LogoBadge from "./LogoBadge";
 
 export default function Footer() {
@@ -36,7 +39,11 @@ export default function Footer() {
           <ul className="mt-4 space-y-2.5 font-mono text-[13px] tracking-[0.08em]">
             {primaryNav.map((item) => (
               <li key={item.href}>
-                <Link href={item.href} className="text-mist transition-colors hover:text-paper">
+                <Link
+                  href={item.href}
+                  onClick={(e) => handleAnchorClick(e, item.href)}
+                  className="text-mist transition-colors hover:text-paper"
+                >
                   {item.label}
                 </Link>
               </li>

@@ -155,8 +155,16 @@ const TRANS_FRAG = /* glsl */ `
   }
 
   void main(){
+    /* curved stage wall: the panel bows around the viewer, so the sides
+       tilt away — the LED grid itself follows the curve */
+    vec2 cUv = vUv - 0.5;
+    float bow = cUv.x * cUv.x;
+    cUv.y *= 1.0 + bow * 0.42;
+    cUv.x *= 1.0 - bow * 0.10;
+    vec2 wall = cUv + 0.5;
+
     /* LED wall: all content is sampled at the emitter centers */
-    vec2 uv = (floor(vUv * uGrid) + 0.5) / uGrid;
+    vec2 uv = (floor(wall * uGrid) + 0.5) / uGrid;
     float n = fbm(uv * 3.0 + uTime * 0.05);
 
     /* outgoing: zoom in, drift left, blur up */
@@ -182,15 +190,20 @@ const TRANS_FRAG = /* glsl */ `
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     col = mix(col, vec3(lum), 0.22);
 
-    /* LED emitters: square pixels with dark pitch gaps + faint panel bloom */
-    vec2 f = fract(vUv * uGrid) - 0.5;
+    /* LED emitters: square pixels with dark pitch gaps + faint panel bloom
+       — the grid itself follows the curved wall coordinate */
+    vec2 f = fract(wall * uGrid) - 0.5;
     float px = max(abs(f.x), abs(f.y));
     float emit = smoothstep(0.5, 0.34, px);
     col = col * (0.12 + 1.15 * emit) + col * 0.08;
 
     /* power-up: panels wake row by row as the section arrives */
-    float wake = smoothstep(vUv.y - 0.25, vUv.y + 0.05, uArrive * 1.3);
+    float wake = smoothstep(wall.y - 0.25, wall.y + 0.05, uArrive * 1.3);
     col *= 0.04 + 0.96 * wake;
+
+    /* the wall angles away toward its curved sides — they catch less
+       light and read a shade darker, like a real stage panel */
+    col *= 1.0 - bow * 0.4;
 
     /* vignette + grain */
     float r2 = dot(vUv - 0.5, vUv - 0.5);

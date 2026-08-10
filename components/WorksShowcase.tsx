@@ -232,7 +232,7 @@ export default function WorksShowcase() {
           className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%]"
           style={{
             background:
-              "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 45%, transparent 100%)",
+              "linear-gradient(to top, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.18) 45%, transparent 100%)",
           }}
           aria-hidden
         />

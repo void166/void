@@ -40,13 +40,20 @@
 
 html {
   color-scheme: dark;
-  scroll-behavior: smooth;
-}
+  /* NOTE: no `scroll-behavior: smooth` here — it fights GSAP ScrollTrigger's
+     scrub/pin/snap on the hero and works stages. Under a fast fling the
+     browser's own native smooth-scroll animation races ScrollTrigger's
+     frame-by-frame updates and can win, making a pinned stage appear to
+     jump straight past its transition into the next section. Nav anchor
+     links get their smoothing from GSAP's ScrollToPlugin instead (see
+     lib/smoothScroll.ts), which shares ScrollTrigger's render loop.
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
+     NOTE: also deliberately no `overflow-x: hidden` here — `html` is set
+     to `height: 100%` (see layout.tsx), and giving `html` any explicit
+     `overflow` breaks the browser's body-overflow-propagates-to-viewport
+     special case: `html` then clips itself to exactly one viewport height
+     instead of the full document, desyncing `window.scrollY` from the
+     real scroll position and breaking every pinned/sticky section. */
 }
 
 @keyframes fade-up {
