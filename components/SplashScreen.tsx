@@ -26,7 +26,7 @@ export default function SplashScreen() {
       // storage unavailable — just show the splash
     }
     if (seen) {
-      setGone(true);
+      queueMicrotask(() => setGone(true));
       return;
     }
 

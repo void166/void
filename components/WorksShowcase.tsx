@@ -34,7 +34,7 @@ export default function WorksShowcase() {
       window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
       !window.WebGLRenderingContext
     ) {
-      setFallback(true);
+      queueMicrotask(() => setFallback(true));
       return;
     }
 
@@ -47,7 +47,7 @@ export default function WorksShowcase() {
       apiRef.current = createWorksShowcase(host, works);
     } catch (err) {
       console.error("[WorksShowcase] WebGL init failed:", err);
-      setFallback(true);
+      queueMicrotask(() => setFallback(true));
       return;
     }
 

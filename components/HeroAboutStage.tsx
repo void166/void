@@ -155,7 +155,7 @@ export default function HeroAboutStage() {
   useEffect(() => {
     if (!reduced && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       /* flip to the static branch first; the scene mounts there next pass */
-      setReduced(true);
+      queueMicrotask(() => setReduced(true));
       return;
     }
     const container = containerRef.current;

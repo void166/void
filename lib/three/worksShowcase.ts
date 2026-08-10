@@ -351,7 +351,117 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   const visScene = new THREE.Scene();
   visScene.add(new THREE.Mesh(quadGeo, visMat));
 
+  /* --- real project media (video / animated image) --- */
+  type MediaEntry = {
+    texture: THREE.Texture | null;
+    ready: boolean;
+    video?: HTMLVideoElement;
+    img?: HTMLImageElement;
+    canvas?: HTMLCanvasElement;
+    ctx?: CanvasRenderingContext2D;
+  };
+
+  /** Cover-fit a texture into the 16:9 render target via repeat/offset. */
+  function coverFit(tex: THREE.Texture, mediaW: number, mediaH: number) {
+    const rtAspect = VIS_W / VIS_H;
+    const mAspect = mediaW / Math.max(1, mediaH);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    if (mAspect > rtAspect) {
+      tex.repeat.set(rtAspect / mAspect, 1);
+      tex.offset.set((1 - tex.repeat.x) / 2, 0);
+    } else {
+      tex.repeat.set(1, mAspect / rtAspect);
+      tex.offset.set(0, (1 - tex.repeat.y) / 2);
+    }
+  }
+
+  const media: (MediaEntry | null)[] = works.map((w) => (w.media ? { texture: null, ready: false } : null));
+
+  works.forEach((w, idx) => {
+    const entry = media[idx];
+    if (!w.media || !entry) return;
+
+    if (w.media.type === "video") {
+      const video = document.createElement("video");
+      video.src = w.media.src;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.autoplay = true;
+      video.preload = "auto";
+      video.addEventListener(
+        "canplay",
+        () => {
+          const tex = new THREE.VideoTexture(video);
+          tex.minFilter = THREE.LinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          coverFit(tex, video.videoWidth || 16, video.videoHeight || 9);
+          entry.texture = tex;
+          entry.ready = true;
+        },
+        { once: true }
+      );
+      video.addEventListener("error", () => {
+        console.error(`[WorksShowcase] video failed to load: ${w.media?.src}`);
+      });
+      video.play().catch(() => {
+        /* muted autoplay should succeed; procedural art covers if not */
+      });
+      entry.video = video;
+    } else {
+      /* animated webp: an <img> keeps animating — drawImage samples the live frame */
+      const img = document.createElement("img");
+      img.decoding = "async";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const w0 = img.naturalWidth || 1024;
+        const h0 = img.naturalHeight || 576;
+        canvas.width = 1024;
+        canvas.height = Math.max(2, Math.round((1024 * h0) / w0));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        coverFit(tex, canvas.width, canvas.height);
+        entry.canvas = canvas;
+        entry.ctx = ctx;
+        entry.texture = tex;
+        entry.ready = true;
+      };
+      img.onerror = () => {
+        console.error(`[WorksShowcase] image failed to load (v2): ${w.media?.src} currentSrc=${img.currentSrc}`);
+      };
+      img.src = w.media.src;
+      entry.img = img;
+    }
+  });
+
+  const mediaBlitMat = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false });
+  const mediaBlitScene = new THREE.Scene();
+  mediaBlitScene.add(new THREE.Mesh(quadGeo, mediaBlitMat));
+
   function renderVisual(index: number, target: THREE.WebGLRenderTarget, time: number) {
+    const m = media[index];
+    if (m?.ready && m.texture) {
+      /* live-copy the animated image's current frame */
+      if (m.ctx && m.img && m.canvas) {
+        m.ctx.drawImage(m.img, 0, 0, m.canvas.width, m.canvas.height);
+        m.texture.needsUpdate = true;
+      }
+      if (mediaBlitMat.map !== m.texture) {
+        mediaBlitMat.map = m.texture;
+        mediaBlitMat.needsUpdate = true;
+      }
+      renderer.setRenderTarget(target);
+      renderer.clear();
+      renderer.render(mediaBlitScene, quadCam);
+      return;
+    }
+
+    /* procedural art doubles as the loading state */
     const v = works[index].visual;
     visUniforms.uTime.value = time;
     visUniforms.uSeed.value = v.seed;
@@ -575,6 +685,22 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     cancelAnimationFrame(rafId);
     timer.dispose();
     resizeObserver.disconnect();
+    media.forEach((m) => {
+      if (!m) return;
+      m.texture?.dispose();
+      if (m.video) {
+        m.video.pause();
+        m.video.removeAttribute("src");
+        m.video.load();
+      }
+      if (m.img) {
+        /* detach handlers first — clearing src fires a spurious error event */
+        m.img.onload = null;
+        m.img.onerror = null;
+        m.img.removeAttribute("src");
+      }
+    });
+    mediaBlitMat.dispose();
     visRTA.dispose();
     visRTB.dispose();
     bgRT?.dispose();
