@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { legalNav, primaryNav } from "@/lib/nav";
 import { profile } from "@/lib/data/profile";
+import { gmailCompose } from "@/lib/mail";
 import { handleAnchorClick } from "@/lib/smoothScroll";
 import LogoBadge from "./LogoBadge";
 
@@ -25,6 +26,8 @@ export default function Footer() {
               <a
                 key={s.label}
                 href={s.href}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex h-8 w-8 items-center justify-center border border-line font-mono text-xs text-mist transition-colors hover:border-accent hover:text-accent"
                 aria-label={s.label}
               >
@@ -64,7 +67,12 @@ export default function Footer() {
           <div className="eyebrow text-fog">Contact</div>
           <ul className="mt-4 space-y-2.5 font-mono text-[13px] tracking-[0.05em] text-mist">
             <li>
-              <a href={`mailto:${profile.email}`} className="transition-colors hover:text-accent">
+              <a
+                href={gmailCompose(profile.email)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="transition-colors hover:text-accent"
+              >
                 {profile.email}
               </a>
             </li>

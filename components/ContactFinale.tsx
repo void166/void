@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { profile } from "@/lib/data/profile";
+import { gmailCompose } from "@/lib/mail";
 
 /** Full-screen closing section: color burst + huge type + magnetic email. */
 export default function ContactFinale() {
@@ -65,7 +66,9 @@ export default function ContactFinale() {
 
         <a
           ref={emailRef}
-          href={`mailto:${profile.email}`}
+          href={gmailCompose(profile.email)}
+          target="_blank"
+          rel="noopener noreferrer"
           className="btn-solid mt-10 inline-block !px-10 !py-4 text-sm"
         >
           {profile.email}
@@ -73,7 +76,13 @@ export default function ContactFinale() {
 
         <div className="mt-12 flex items-center justify-center gap-6 font-mono text-[11px] uppercase tracking-[0.2em]">
           {profile.socials.map((s) => (
-            <a key={s.label} href={s.href} className="text-mist transition-colors hover:text-accent">
+            <a
+              key={s.label}
+              href={s.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-mist transition-colors hover:text-accent"
+            >
               {s.label}
             </a>
           ))}

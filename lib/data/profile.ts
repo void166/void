@@ -24,9 +24,8 @@ export const profile = {
     { value: "∞", label: "Curiosity" },
   ],
   socials: [
-    { label: "GitHub", href: "https://github.com/" },
-    { label: "LinkedIn", href: "#" },
-    { label: "Instagram", href: "#" },
+    { label: "Instagram", href: "https://www.instagram.com/void.cp/" },
+    { label: "Facebook", href: "https://www.facebook.com/candy.monhuush.3/" },
   ],
   stack: [
     { name: "TypeScript", note: "daily driver" },
