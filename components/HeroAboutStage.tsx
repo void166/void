@@ -279,8 +279,7 @@ export default function HeroAboutStage() {
 
     apply(0);
 
-    /* resting states: hero, then each fully-settled panel — snap to
-       whichever side of the midpoint the user released the scroll on */
+    /* resting states: hero, then each fully-settled panel */
     const snapPoints = [
       0,
       ...Array.from({ length: segments + 1 }, (_, k) =>
@@ -293,11 +292,14 @@ export default function HeroAboutStage() {
       start: "top top",
       end: "bottom bottom",
       scrub: true,
+      /* alche's snap feel: settle on the NEAREST resting point rather than
+         the next one in the direction of travel, over a slow second. That
+         combination is what keeps a hard fling from sailing past a panel
+         while still never feeling like it yanks you back. */
       snap: {
         snapTo: snapPoints,
-        duration: { min: 0.25, max: 0.65 },
-        ease: "power2.inOut",
-        delay: 0.08,
+        duration: 1,
+        directional: false,
       },
       onUpdate: (self) => apply(self.progress),
     });

@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ScrollFX from "@/components/ScrollFX";
 import SectionRail from "@/components/SectionRail";
+import SmoothScroll from "@/components/SmoothScroll";
 import SplashScreen from "@/components/SplashScreen";
 import "./globals.css";
 
@@ -33,6 +34,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-ink text-paper">
+        {/* Lenis — starts before any pinned section builds its ScrollTrigger */}
+        <SmoothScroll />
         <SplashScreen />
         <Header />
         <main className="flex-1">{children}</main>

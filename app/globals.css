@@ -56,6 +56,36 @@ html {
      real scroll position and breaking every pinned/sticky section. */
 }
 
+/* ---------- Lenis smooth scroll ---------- */
+/* Lenis eases window.scrollY on its own rAF loop (see lib/smoothScroll.ts).
+   These are its required host rules — normally shipped as lenis/dist/lenis.css,
+   inlined here so the html/height interaction above stays readable in one
+   place: `html` carries `h-full` from layout.tsx, and Lenis needs the
+   document free to grow past one viewport or the virtual scroll has no
+   distance to travel. */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+/* opt an inner scroller out with `data-lenis-prevent` — it keeps native
+   scrolling and stops chaining into the page glide */
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;

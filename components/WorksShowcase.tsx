@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { works } from "@/lib/data/works";
+import { works, type Work } from "@/lib/data/works";
 import { createWorksShowcase, shapeSegment, type WorksApi } from "@/lib/three/worksShowcase";
 
 /**
@@ -54,9 +54,6 @@ export default function WorksShowcase() {
     gsap.registerPlugin(ScrollTrigger);
     ScrollTrigger.config({ ignoreMobileResize: true });
     const segments = works.length - 1;
-    /* transitions finish at SEQ; the tail is a hold on the last project so
-       the section can unpin calmly instead of cutting mid-motion */
-    const SEQ = 0.85;
     let lastShown = 0;
     let lastSegment = 0;
 
@@ -65,50 +62,64 @@ export default function WorksShowcase() {
       start: "top top",
       end: "bottom bottom",
       scrub: true,
-      /* settle on whichever project is past the halfway point */
+      /* One resting point per project, evenly spaced — progress k/(N-1) IS
+         project k, so no separate snap table to keep in sync.
+         `directional: false` settles on the NEAREST project rather than the
+         next one in the direction of travel, which is what stops a hard
+         fling from carrying you past one. The slow 1s duration is what
+         keeps it reading as a settle instead of a yank. */
       snap: {
-        snapTo: [...Array.from({ length: segments + 1 }, (_, k) => (k / segments) * SEQ), 1],
-        duration: { min: 0.25, max: 0.65 },
-        ease: "power2.inOut",
-        delay: 0.08,
+        snapTo: 1 / segments,
+        duration: 1,
+        directional: false,
       },
       onUpdate: (self) => {
-        const p = Math.min(1, self.progress / SEQ);
-        apiRef.current?.setProgress(p);
-
-        const global = Math.min(0.99999, p) * segments;
-        const i = Math.min(segments - 1, Math.floor(global));
-        const tt = shapeSegment(global - i);
-
-        /* DOM choreography mirrors the scene */
-        if (titleCurRef.current) {
-          gsap.set(titleCurRef.current, {
-            opacity: 1 - smooth(tt, 0.08, 0.42),
-            y: tt * -46,
-            x: tt * -22,
-          });
-        }
-        if (titleNextRef.current) {
-          gsap.set(titleNextRef.current, {
-            opacity: smooth(tt, 0.58, 0.92),
-            y: (1 - tt) * 52,
-            x: (1 - tt) * 20,
-          });
-        }
+        apiRef.current?.setProgress(self.progress);
+        /* px/sec → roughly -1..1; the scene eases it before use */
+        apiRef.current?.setVelocity(
+          Math.max(-1, Math.min(1, self.getVelocity() / 3000))
+        );
         if (hintRef.current) {
-          gsap.set(hintRef.current, { opacity: Math.max(0, 1 - p * 14) });
+          gsap.set(hintRef.current, { opacity: Math.max(0, 1 - self.progress * 14) });
         }
+      },
+    });
 
-        /* text blocks bind to the segment (outgoing = i, incoming = i+1) */
-        if (i !== lastSegment) {
-          lastSegment = i;
-          setSegment(i);
-        }
-        /* rail + counter show the project that visually dominates */
-        const shown = tt > 0.5 ? i + 1 : i;
-        if (shown !== lastShown) {
-          lastShown = shown;
-        }
+    /* The copy is driven per-frame off the scene's own eased focus rather
+       than off raw scroll progress. The cards are pulled toward whole slots
+       inside the scene, so deriving the text independently here would let it
+       drift ahead of the card it belongs to. One source of truth. */
+    const syncCopy = () => {
+      const api = apiRef.current;
+      if (!api) return;
+      const focus = api.getFocus();
+      const i = Math.max(0, Math.min(segments - 1, Math.floor(focus)));
+      const tt = shapeSegment(focus - i);
+
+      if (titleCurRef.current) {
+        gsap.set(titleCurRef.current, {
+          opacity: 1 - smooth(tt, 0.08, 0.42),
+          y: tt * -46,
+          x: tt * -22,
+        });
+      }
+      if (titleNextRef.current) {
+        gsap.set(titleNextRef.current, {
+          opacity: smooth(tt, 0.58, 0.92),
+          y: (1 - tt) * 52,
+          x: (1 - tt) * 20,
+        });
+      }
+
+      /* which pair of projects the two blocks hold */
+      if (i !== lastSegment) {
+        lastSegment = i;
+        setSegment(i);
+      }
+      /* rail + counter follow the card that visually dominates */
+      const shown = Math.max(0, Math.min(works.length - 1, Math.round(focus)));
+      if (shown !== lastShown) {
+        lastShown = shown;
         if (indexNumRef.current) {
           indexNumRef.current.textContent = String(shown + 1).padStart(2, "0");
         }
@@ -118,8 +129,9 @@ export default function WorksShowcase() {
             (ticks[k] as HTMLElement).style.opacity = k === shown ? "1" : "0.28";
           }
         }
-      },
-    });
+      }
+    };
+    gsap.ticker.add(syncCopy);
 
     /* arrival: about hands off directly — the stage powers up in place
        (LED wall wakes, card rises from depth) instead of a hard slide-in */
@@ -167,6 +179,7 @@ export default function WorksShowcase() {
     sticky.addEventListener("pointerenter", onEnter);
 
     return () => {
+      gsap.ticker.remove(syncCopy);
       st.kill();
       arrive.kill();
       sticky.removeEventListener("pointermove", onMove);
@@ -221,7 +234,10 @@ export default function WorksShowcase() {
       id="works"
       ref={sectionRef}
       className="relative"
-      style={{ height: `${works.length * 120}svh` }}
+      /* one screen of scroll per project, alche's pitch — with N projects the
+         pinned stage travels N-1 screens, which lines each snap point up with
+         exactly one project */
+      style={{ height: `${works.length * 100}svh` }}
     >
       <div ref={stickyRef} className="sticky top-0 h-svh w-full overflow-hidden bg-[#020202]">
         {/* WebGL stage */}
@@ -264,32 +280,23 @@ export default function WorksShowcase() {
           ))}
         </div>
 
-        {/* current project meta */}
-        <div ref={titleCurRef} className="absolute bottom-14 left-6 right-6 max-w-xl will-change-transform sm:bottom-16 sm:left-10 sm:right-auto">
+        {/* current project meta — alche anchors this at left 8% / bottom 10vh,
+            widening to 91% on phones where 70% would wrap badly */}
+        <div
+          ref={titleCurRef}
+          className="absolute bottom-[10svh] left-[4%] w-[91%] will-change-transform md:left-[8%] md:w-[70%]"
+        >
           <TextBackdrop />
-          <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">
-            {cur.category} · {cur.year}
-          </div>
-          <h3 className="display-title mt-3 text-3xl text-paper sm:text-6xl" data-no-split>
-            {cur.title}
-          </h3>
-          <p className="mt-3 max-w-md text-sm leading-relaxed text-mist sm:mt-4">{cur.description}</p>
-          <MagneticLink href={cur.href} />
+          <WorkMeta w={cur} linked />
         </div>
 
         {/* incoming project meta (fades in during transition) */}
         <div
           ref={titleNextRef}
-          className="pointer-events-none absolute bottom-14 left-6 right-6 max-w-xl opacity-0 will-change-transform sm:bottom-16 sm:left-10 sm:right-auto"
+          className="pointer-events-none absolute bottom-[10svh] left-[4%] w-[91%] opacity-0 will-change-transform md:left-[8%] md:w-[70%]"
         >
           <TextBackdrop />
-          <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">
-            {nxt.category} · {nxt.year}
-          </div>
-          <h3 className="display-title mt-3 text-3xl text-paper sm:text-6xl" data-no-split>
-            {nxt.title}
-          </h3>
-          <p className="mt-3 max-w-md text-sm leading-relaxed text-mist sm:mt-4">{nxt.description}</p>
+          <WorkMeta w={nxt} />
         </div>
 
         {/* scroll hint */}
@@ -335,32 +342,35 @@ function TextBackdrop() {
   );
 }
 
-/* View-project link with a subtle magnetic pull */
-function MagneticLink({ href }: { href: string }) {
-  const ref = useRef<HTMLAnchorElement | null>(null);
-
-  useEffect(() => {
-    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
-    const el = ref.current;
-    if (!el) return;
-    const onMove = (e: PointerEvent) => {
-      const r = el.getBoundingClientRect();
-      const dx = e.clientX - (r.left + r.width / 2);
-      const dy = e.clientY - (r.top + r.height / 2);
-      gsap.to(el, { x: dx * 0.25, y: dy * 0.3, duration: 0.4, ease: "power3.out" });
-    };
-    const onLeave = () => gsap.to(el, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.5)" });
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerleave", onLeave);
-    return () => {
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerleave", onLeave);
-    };
-  }, []);
-
+/* One project's copy, in alche's field order: date, title, secondary line,
+   then outlined category pills. Only the project in focus links out — the
+   incoming block is mid-fade and shouldn't be a click target. */
+function WorkMeta({ w, linked = false }: { w: Work; linked?: boolean }) {
   return (
-    <Link ref={ref} href={href} className="btn-ghost mt-6 inline-block">
-      View Project
-    </Link>
+    <>
+      <time className="block font-mono text-[11px] uppercase tracking-[0.2em] text-accent">
+        {w.year}
+      </time>
+      <h3 className="display-title mt-2 text-3xl leading-none text-paper sm:text-5xl md:text-6xl" data-no-split>
+        {linked ? (
+          <Link href={w.href} className="inline-block transition-opacity hover:opacity-80">
+            {w.title}
+          </Link>
+        ) : (
+          w.title
+        )}
+      </h3>
+      <p className="mt-3 max-w-md text-sm leading-relaxed text-mist">{w.description}</p>
+      <ul className="mt-4 flex flex-wrap gap-2">
+        {w.category.split("/").map((c) => (
+          <li
+            key={c}
+            className="rounded-[0.3em] border border-[#777777] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.04em] text-mist"
+          >
+            {c.trim()}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

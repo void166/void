@@ -7,9 +7,24 @@ export type WorksApi = {
   setProgress: (p: number) => void;
   /** 0..1 while the section scrolls into view — LED wall powers up, card emerges */
   setArrival: (a: number) => void;
+  /** normalized scroll speed (-1..1) — bends the card and smears its optics */
+  setVelocity: (v: number) => void;
+  /**
+   * Which card is centred, in card units (0 = first project). Eased and
+   * pulled toward whole slots inside the scene — the DOM overlay reads this
+   * rather than deriving its own, so copy and cards move as one.
+   */
+  getFocus: () => number;
   /** pointer in -1..1 (x right, y down) */
   setPointer: (x: number, y: number) => void;
 };
+
+/* Radii of the arc the cards ride, in world units. The card is 3.36 wide, and
+   alche's ratios (arc 11 across / 5 deep against an 8-wide card) scaled to
+   that give roughly 4.6 and 2.1 — wide enough that neighbours clear the
+   centred card, tight enough that they stay on screen. */
+const ARC_X = 4.6;
+const ARC_Z = 2.1;
 
 /** Hold → transition → settle shaping shared with the DOM layer. */
 export function shapeSegment(t: number): number {
@@ -218,22 +233,45 @@ const TRANS_FRAG = /* glsl */ `
 /* Foreground project plane — sharp visual w/ motion warp + fade      */
 /* ------------------------------------------------------------------ */
 const PLANE_VERT = /* glsl */ `
+  uniform float uVel;
   varying vec2 vUv;
+  varying vec2 vCuv;
+  #define PI 3.14159265359
   void main(){
     vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vCuv = uv - 0.5;
+    vec3 pos = position;
+    /* the card bows hard toward the viewer across its width — a pronounced
+       convex screen, so the edges rake away and the lens sampling below has
+       real curvature to bend light through */
+    pos.z += cos(vCuv.x * PI) * 0.9;
+    /* the bow also pulls the sides inward, the way a curved screen loses
+       apparent width — without this the card reads as bulging, not curved */
+    pos.x *= 1.0 - (1.0 - cos(vCuv.x * PI)) * 0.06;
+    /* scroll speed pushes the middle back, so the card gives a little
+       under motion and settles when the scroll stops */
+    pos.z -= abs(uVel) * 0.45 * cos(vCuv.x * PI);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
   }
 `;
 
 const PLANE_FRAG = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
+  varying vec2 vCuv;
   uniform sampler2D uTex;
   uniform float uOpacity;
   uniform float uBlur;
   uniform float uWarp;
+  uniform float uVel;
   uniform float uTime;
   ${NOISE_GLSL}
+
+  /* barrel distortion: pushes samples outward with the square of the
+     radius, so the centre stays honest and the rim stretches */
+  vec2 lens_distortion(vec2 r, float alpha){
+    return r * (1.0 - alpha * dot(r, r));
+  }
 
   void main(){
     vec2 uv = vUv;
@@ -258,17 +296,32 @@ const PLANE_FRAG = /* glsl */ `
     vec2 dirOut = normalize(p + vec2(1e-5));
     vec2 dirUv = dirOut * vec2(1.0 / aspect, 1.0);
 
-    float r = uBlur * 0.012;
-    vec3 col;
-    col.r = texture2D(uTex, uv - dirUv * bend * 1.25).r * 0.5
-          + texture2D(uTex, uv - dirUv * bend * 1.25 + vec2(r, 0.0)).r * 0.25
-          + texture2D(uTex, uv - dirUv * bend * 1.25 - vec2(r, 0.0)).r * 0.25;
-    col.g = texture2D(uTex, uv - dirUv * bend).g * 0.5
-          + texture2D(uTex, uv - dirUv * bend + vec2(r, 0.0)).g * 0.25
-          + texture2D(uTex, uv - dirUv * bend - vec2(r, 0.0)).g * 0.25;
-    col.b = texture2D(uTex, uv - dirUv * bend * 0.75).b * 0.5
-          + texture2D(uTex, uv - dirUv * bend * 0.75 + vec2(r, 0.0)).b * 0.25
-          + texture2D(uTex, uv - dirUv * bend * 0.75 - vec2(r, 0.0)).b * 0.25;
+    /* The lens stack: four taps per channel at rising barrel strength,
+       averaged. Chromatic aberration and a soft optical blur both fall out
+       of the one loop — red bends least, blue most, and the spread between
+       the taps is what reads as glass rather than a colour fringe.
+       The 1.3 / 0.9 pre-scale crops in slightly so the distortion never
+       samples past the texture edge. */
+    vec2 cuv = (uv - 0.5) * 1.3;
+    cuv.x *= 0.9;
+    vec2 nOff = -dirUv * bend;
+    /* fast scrolling drags the sample sideways — a motion smear */
+    nOff.x -= uVel * 0.055;
+    /* uBlur widens the gap between taps: the card softens while it travels
+       through a transition and sharpens as it settles */
+    float spread = 0.03 + uBlur * 0.05;
+    vec3 col = vec3(0.0);
+    for (int i = 0; i < 4; i++){
+      float base = 0.1 + (float(i) / 4.0) * spread;
+      col.r += texture2D(uTex, lens_distortion(cuv, base + 0.10) + 0.5 + nOff * 1.00).r;
+      col.g += texture2D(uTex, lens_distortion(cuv, base + 0.12) + 0.5 + nOff * 1.01).g;
+      col.b += texture2D(uTex, lens_distortion(cuv, base + 0.14) + 0.5 + nOff * 1.02).b;
+    }
+    col /= 4.0;
+
+    /* soft radial falloff so the card reads as a lens with a bright
+       centre, not a flat rectangle of video */
+    col *= smoothstep(0.9, 0.49, length(vCuv));
 
     /* glass body: soft top-left gloss + glow hugging the inside edge */
     float gloss = smoothstep(0.2, 1.0, uv.y * 0.75 + (1.0 - uv.x) * 0.25);
@@ -572,29 +625,54 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   const CAM_Z = 6;
   camera.position.set(0, 0, CAM_Z);
 
-  const mkPlaneUniforms = (tex: THREE.Texture) => ({
-    uTex: { value: tex },
-    uOpacity: { value: 1 },
-    uBlur: { value: 0 },
-    uWarp: { value: 0 },
-    uTime: { value: 0 },
-  });
-  const planeGeo = new THREE.PlaneGeometry(3.36, 1.89);
-  const curUniforms = mkPlaneUniforms(visRTA.texture);
-  const nextUniforms = mkPlaneUniforms(visRTB.texture);
-  const mkPlaneMat = (uniforms: ReturnType<typeof mkPlaneUniforms>) =>
-    new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: PLANE_VERT,
-      fragmentShader: PLANE_FRAG,
-      transparent: true,
-      depthWrite: false,
+  /* subdivided: the vertex shader bows this across x, and a 1x1 quad has
+     no interior vertices to bend */
+  const planeGeo = new THREE.PlaneGeometry(3.36, 1.89, 64, 32);
+
+  /* One card per project, all alive at once and laid out on an arc — the
+     carousel needs its neighbours on screen, so each card owns its texture
+     rather than sharing the two transition targets. */
+  type Card = {
+    mesh: THREE.Mesh;
+    uniforms: ReturnType<typeof mkCardUniforms>;
+    /** this card's own surface: renderVisual fills it with the project's
+        footage once that decodes, and the procedural pattern until then */
+    rt: THREE.WebGLRenderTarget;
+    index: number;
+  };
+
+  function mkCardUniforms(tex: THREE.Texture | null) {
+    return {
+      uTex: { value: tex },
+      uOpacity: { value: 0 },
+      uBlur: { value: 0 },
+      uWarp: { value: 0 },
+      uVel: { value: 0 },
+      uTime: { value: 0 },
+    };
+  }
+
+  const cards: Card[] = works.map((_, i) => {
+    /* half-res stand-in: it only ever shows while the video is decoding */
+    const rt = new THREE.WebGLRenderTarget(1024, 576, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
     });
-  const planeCur = new THREE.Mesh(planeGeo, mkPlaneMat(curUniforms));
-  const planeNext = new THREE.Mesh(planeGeo, mkPlaneMat(nextUniforms));
-  planeNext.renderOrder = 1;
-  planeCur.renderOrder = 3;
-  scene.add(planeCur, planeNext);
+    const uniforms = mkCardUniforms(rt.texture);
+    const mesh = new THREE.Mesh(
+      planeGeo,
+      new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: PLANE_VERT,
+        fragmentShader: PLANE_FRAG,
+        transparent: true,
+        depthWrite: false,
+      })
+    );
+    mesh.visible = false;
+    scene.add(mesh);
+    return { mesh, uniforms, rt, index: i };
+  });
 
   const glassUniforms = {
     uBg: { value: null as THREE.Texture | null },
@@ -619,9 +697,16 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
 
   /* --- state --- */
   let progress = 0;
-  let smoothProgress = 0;
+  /* which card is centred, in card units — eased so the pull toward whole
+     slots reads as a settle. The DOM overlay reads this too (getFocus), so
+     the copy and the cards can never drift apart. */
+  let focus = 0;
   let arrival = 0;
   let smoothArrival = 0;
+  /* raw scroll speed in, eased here — velocity is spiky by nature and the
+     card deformation it drives would judder if read frame-to-frame */
+  let velocity = 0;
+  let smoothVelocity = 0;
   const pointer = { x: 0, y: 0 };
   const smoothPointer = { x: 0, y: 0 };
   let rtAIndex = -1;
@@ -666,56 +751,72 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     timer.update();
     const t = timer.getElapsed();
 
-    smoothProgress += (progress - smoothProgress) * 0.16;
     smoothArrival += (arrival - smoothArrival) * 0.14;
+    smoothVelocity += (velocity - smoothVelocity) * 0.12;
     smoothPointer.x += (pointer.x - smoothPointer.x) * 0.06;
     smoothPointer.y += (pointer.y - smoothPointer.y) * 0.06;
 
     const segments = works.length - 1;
-    const global = THREE.MathUtils.clamp(smoothProgress, 0, 1) * segments;
-    const i = Math.min(segments - 1, Math.floor(global));
-    const local = segments === 0 ? 0 : global - i;
+
+    /* Focus: which card is centred, in card units. Position reads straight
+       from the scroll (Lenis already smoothed it), then gets pulled 60%
+       toward the nearest whole card — alche's trick for making cards sit at
+       discrete slots. That blend jumps by 0.6 as round() flips, so it needs
+       the ease below to read as a click-into-place rather than a pop. */
+    const raw = THREE.MathUtils.clamp(progress, 0, 1) * segments;
+    const focusTarget = Math.round(raw) * 0.6 + raw * 0.4;
+    focus += (focusTarget - focus) * 0.18;
+
+    /* the two transition targets still drive the LED wall behind the cards */
+    const i = Math.min(segments - 1, Math.floor(raw));
+    const local = segments === 0 ? 0 : raw - i;
     const tt = shapeSegment(local);
     const arc = Math.sin(tt * Math.PI);
-
-    /* keep the two RTs mapped to current + next */
-    const needA = Math.min(i, works.length - 1);
-    const needB = Math.min(i + 1, works.length - 1);
-    rtAIndex = needA;
-    rtBIndex = needB;
+    rtAIndex = Math.min(i, works.length - 1);
+    rtBIndex = Math.min(i + 1, works.length - 1);
     renderVisual(rtAIndex, visRTA, t);
     if (rtBIndex !== rtAIndex && (tt > 0.001 || local > 0.05)) {
       renderVisual(rtBIndex, visRTB, t * 0.9 + 7.0);
     }
 
-    /* arrival: the card rises out of depth while the wall powers up */
+    /* arrival: the cards rise out of depth while the wall powers up */
     const arIn = 1 - smoothArrival;
+    const arFade = THREE.MathUtils.smoothstep(smoothArrival, 0.1, 0.85);
 
-    /* outgoing plane: pushes past the camera, exits decisively */
-    planeCur.position.z = tt * 3.2 - arIn * 2.6;
-    planeCur.position.x = -tt * 2.3;
-    planeCur.position.y = tt * 0.4 - arIn * 0.9 + Math.sin(t * 0.5) * 0.03;
-    planeCur.rotation.y = -tt * 0.5 + smoothPointer.x * 0.03;
-    planeCur.rotation.x = tt * 0.1 + arIn * 0.3 - smoothPointer.y * 0.02;
-    curUniforms.uOpacity.value =
-      (1 - THREE.MathUtils.smoothstep(tt, 0.35, 0.8)) *
-      THREE.MathUtils.smoothstep(smoothArrival, 0.1, 0.85);
-    curUniforms.uBlur.value = tt * 1.6 + arIn * 1.2;
-    curUniforms.uWarp.value = arc;
-    curUniforms.uTime.value = t;
+    /* ---- the carousel: every card on one arc, sweeping right to left ---- */
+    for (const card of cards) {
+      /* x is the card's signed distance from centre. As focus climbs, x
+         falls for every card — so they enter from the right (+x), swing
+         through the front at 0, and leave to the left (-x). */
+      const x = card.index - focus;
+      const ax = Math.abs(x);
 
-    /* incoming plane: emerges from depth */
-    const back = 1 - tt;
-    planeNext.visible = rtBIndex !== rtAIndex;
-    planeNext.position.z = -6.5 * back;
-    planeNext.position.x = back * 1.1;
-    planeNext.position.y = -back * 0.25 + Math.sin(t * 0.5 + 2.0) * 0.03;
-    planeNext.rotation.y = back * 0.3 + smoothPointer.x * 0.03;
-    planeNext.rotation.x = -back * 0.06 - smoothPointer.y * 0.02;
-    nextUniforms.uOpacity.value = THREE.MathUtils.smoothstep(tt, 0.12, 0.5);
-    nextUniforms.uBlur.value = back * 2.0;
-    nextUniforms.uWarp.value = arc * 0.7;
-    nextUniforms.uTime.value = t;
+      const alpha = (1 - THREE.MathUtils.smoothstep(ax, 0.8, 2.5)) * arFade;
+      card.uniforms.uOpacity.value = alpha;
+      /* skip the whole draw once a card has faded out */
+      card.mesh.visible = alpha > 0.01;
+      if (!card.mesh.visible) continue;
+
+      /* sin/cos put the card on a circle, so it turns away as it recedes
+         instead of sliding flat across the screen */
+      card.mesh.position.x = Math.sin(x) * ARC_X;
+      card.mesh.position.z = Math.cos(x) * ARC_Z - ARC_Z - arIn * 2.6;
+      card.mesh.position.y = -x * 0.42 - arIn * 0.9 + Math.sin(t * 0.5 + card.index) * 0.03;
+      card.mesh.rotation.y = x * 0.6 + smoothPointer.x * 0.03;
+      card.mesh.rotation.x = arIn * 0.3 - smoothPointer.y * 0.02;
+      /* the centred card sits biggest and closest to sharp */
+      card.mesh.scale.setScalar(0.9 + 0.2 * (1 - Math.min(1, ax)));
+      /* draw far cards first so the focused one lands on top */
+      card.mesh.renderOrder = 10 - Math.round(ax * 4);
+
+      card.uniforms.uVel.value = smoothVelocity;
+      card.uniforms.uBlur.value = ax * 1.2 + arIn * 1.2;
+      card.uniforms.uWarp.value = arc;
+      card.uniforms.uTime.value = t;
+
+      /* only visible cards pay for a surface update */
+      renderVisual(card.index, card.rt, t + card.index * 3.0);
+    }
 
     shard1.rotation.y += 0.0012;
     shard2.rotation.y -= 0.0009;
@@ -776,6 +877,12 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
   function setArrival(a: number) {
     arrival = THREE.MathUtils.clamp(a, 0, 1);
   }
+  function setVelocity(v: number) {
+    velocity = THREE.MathUtils.clamp(v, -1, 1);
+  }
+  function getFocus() {
+    return focus;
+  }
   function setPointer(x: number, y: number) {
     pointer.x = THREE.MathUtils.clamp(x, -1, 1);
     pointer.y = THREE.MathUtils.clamp(y, -1, 1);
@@ -811,8 +918,10 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     transMat.dispose();
     blitMat.dispose();
     planeGeo.dispose();
-    (planeCur.material as THREE.Material).dispose();
-    (planeNext.material as THREE.Material).dispose();
+    cards.forEach((card) => {
+      card.rt.dispose();
+      (card.mesh.material as THREE.Material).dispose();
+    });
     shardGeo.dispose();
     glassMat.dispose();
     renderer.dispose();
@@ -821,5 +930,5 @@ export function createWorksShowcase(container: HTMLDivElement, works: Work[]): W
     }
   }
 
-  return { dispose, setProgress, setArrival, setPointer };
+  return { dispose, setProgress, setArrival, setVelocity, getFocus, setPointer };
 }
